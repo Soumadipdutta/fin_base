@@ -1,0 +1,17 @@
+
+fastapi
+uvicorn[standard]
+sqlalchemy
+alembic
+psycopg[binary]
+pydantic
+pydantic-settings
+python-dotenv
+numpy
+pandas
+networkx
+ortools
+langgraph
+langchain-core
+pytest
+httpx

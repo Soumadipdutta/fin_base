@@ -6,6 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.companies import router as companies_router
 from app.api.routes.accounts import router as accounts_router
 from app.api.routes.invoices import router as invoices_router
+from app.api.routes.obligations import router as obligations_router
+from app.api.routes.forecast import router as forecast_router
+from app.api.routes.risks import router as risks_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -26,6 +29,9 @@ app = FastAPI(
 app.include_router(companies_router, prefix="/api/v1")
 app.include_router(accounts_router, prefix="/api/v1")
 app.include_router(invoices_router, prefix="/api/v1")
+app.include_router(obligations_router, prefix="/api/v1")
+app.include_router(forecast_router, prefix="/api/v1")
+app.include_router(risks_router, prefix="/api/v1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

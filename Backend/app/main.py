@@ -9,6 +9,7 @@ from app.api.routes.invoices import router as invoices_router
 from app.api.routes.obligations import router as obligations_router
 from app.api.routes.forecast import router as forecast_router
 from app.api.routes.risks import router as risks_router
+from app.api.routes.simulation import router as simulation_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,6 +33,7 @@ app.include_router(invoices_router, prefix="/api/v1")
 app.include_router(obligations_router, prefix="/api/v1")
 app.include_router(forecast_router, prefix="/api/v1")
 app.include_router(risks_router, prefix="/api/v1")
+app.include_router(simulation_router, prefix="/api/v1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

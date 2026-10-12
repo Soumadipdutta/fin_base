@@ -135,20 +135,46 @@ def optimize_payments(
         if due_balance >= currency_reserve:
             continue
 
+        
         chosen_date = None
 
         for day in eligible_dates:
-        # The forecast already includes the payment on its original
-        # due date. Moving it shifts the payment to this later date;
-        # the closing balance on that date should remain unchanged.
-            if day["closing_balance"] >= currency_reserve:
-                chosen_date = day["date"]
+            candidate_date = day["date"]
+
+            # Check balances after the original due date.
+            # The original due date is already known to be unsafe.
+            interval = [
+                item
+                for item in schedule
+                if original_due < item["date"] <= candidate_date
+            ]
+
+            if interval and all(
+                item["closing_balance"] >= currency_reserve
+                for item in interval
+            ):
+                chosen_date = candidate_date
                 break
+
 
         if chosen_date is None:
             # Do not recommend a move that still breaches the reserve
             # on the candidate's new payment date.
             continue
+
+        
+        original_shortfall = max(
+            ZERO,
+            currency_reserve - due_balance,
+        )
+
+        chosen_day = next(
+            day for day in schedule
+            if day["date"] == chosen_date
+        )
+
+        recommended_balance = chosen_day["closing_balance"]
+        reserve_headroom = recommended_balance - currency_reserve
 
         recommendations.append({
             "obligation_id": candidate["obligation_id"],
@@ -157,11 +183,21 @@ def optimize_payments(
             "original_due_date": original_due,
             "recommended_date": chosen_date,
             "reason": (
-                "Postponing this flexible payment may help preserve "
-                "the configured reserve on the original due date."
+                f"Projected closing balance on the original due date "
+                f"is {due_balance:.2f} {currency}, below the applicable "
+                f"reserve of {currency_reserve:.2f} {currency}. "
+                f"The proposed date has a projected closing balance of "
+                f"{recommended_balance:.2f} {currency}."
             ),
+            "expected_benefit": {
+                "original_reserve_shortfall": str(original_shortfall),
+                "projected_reserve_headroom_on_recommended_date": str(
+                    reserve_headroom
+                ),
+            },
             "priority": candidate["priority"],
         })
+
 
         total_deferred[currency] += candidate["amount"]
 

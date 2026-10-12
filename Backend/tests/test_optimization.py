@@ -212,3 +212,29 @@ def test_reserve_is_not_applied_to_foreign_currency():
     )
 
     assert result["recommendations"] == []
+
+
+def test_recommendation_includes_explanation_and_expected_benefit():
+    result = optimize_payments(
+        forecast=make_forecast(),
+        obligations=[
+            {
+                "id": 401,
+                "currency": "INR",
+                "amount": "80.00",
+                "due_date": "2026-10-12",
+                "flexible_until": "2026-10-13",
+                "priority": "normal",
+            }
+        ],
+        minimum_reserve="30.00",
+    )
+
+    recommendation = result["recommendations"][0]
+
+    assert "original due date" in recommendation["reason"]
+    assert recommendation["expected_benefit"] == {
+        "original_reserve_shortfall": "10.00",
+        "projected_reserve_headroom_on_recommended_date": "90.00",
+    }
+

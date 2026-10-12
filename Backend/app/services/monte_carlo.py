@@ -42,6 +42,27 @@ def simulate_forecast(
     for row in rows:
         grouped[row["currency"]].append(row)
 
+    # New forecasts provide individual receivable events.
+    # Older test fixtures can continue using aggregated daily inflows.
+    receivable_events = forecast.get("receivable_events")
+    invoice_level = receivable_events is not None
+
+    events_by_currency = defaultdict(list)
+    if invoice_level:
+        for event in receivable_events:
+            amount = Decimal(str(event["amount"]))
+
+            if amount < 0:
+                raise ValueError("Receivable amounts cannot be negative")
+
+            events_by_currency[event["currency"]].append(
+                {
+                    "date": event["expected_date"],
+                    "amount": amount,
+                    "invoice_id": event.get("invoice_id"),
+                }
+            )
+
     rng = random.Random(seed)
     currency_results = []
 
@@ -52,19 +73,27 @@ def simulate_forecast(
         )
 
         dates = [row["date"] for row in currency_rows]
+        date_indexes = {
+            day: index for index, day in enumerate(dates)
+        }
         day_count = len(dates)
 
         opening_balance = Decimal(
             str(currency_rows[0]["opening_balance"])
         )
-        inflows = [
-            Decimal(str(row["expected_inflows"]))
-            for row in currency_rows
-        ]
+
         outflows = [
             Decimal(str(row["expected_outflows"]))
             for row in currency_rows
         ]
+
+        # Legacy forecasts use aggregated inflows.
+        inflows = [
+            Decimal(str(row["expected_inflows"]))
+            for row in currency_rows
+        ]
+
+        events = events_by_currency.get(currency, [])
 
         track_reserve = (
             reserve is not None and currency == reserve_currency
@@ -79,15 +108,33 @@ def simulate_forecast(
         for _ in range(simulations):
             shifted_inflows = [Decimal("0")] * day_count
 
-            for i, amount in enumerate(inflows):
-                if amount <= 0:
-                    continue
+            if invoice_level:
+                # Independently delay each invoice.
+                for event in events:
+                    original_index = date_indexes.get(event["date"])
 
-                delay = rng.randint(0, max_delay_days)
-                target = i + delay
+                    # Ignore events outside this currency's forecast dates.
+                    if original_index is None:
+                        continue
 
-                if target < day_count:
-                    shifted_inflows[target] += amount
+                    delay = rng.randint(0, max_delay_days)
+                    target = original_index + delay
+
+                    # Receipts after the forecast horizon are not received
+                    # within this scenario's forecast window.
+                    if target < day_count:
+                        shifted_inflows[target] += event["amount"]
+            else:
+                # Backward-compatible behavior for older forecast fixtures.
+                for i, amount in enumerate(inflows):
+                    if amount <= 0:
+                        continue
+
+                    delay = rng.randint(0, max_delay_days)
+                    target = i + delay
+
+                    if target < day_count:
+                        shifted_inflows[target] += amount
 
             balance = opening_balance
             scenario_negative = False
@@ -166,7 +213,11 @@ def simulate_forecast(
         "company_id": forecast.get("company_id"),
         "forecast_start": forecast.get("forecast_start"),
         "forecast_end": forecast.get("forecast_end"),
-        "method": "uniform_receivable_delay",
+        "method": (
+            "independent_invoice_delay"
+            if invoice_level
+            else "uniform_receivable_delay"
+        ),
         "seed": seed,
         "results": currency_results,
         "limitations": [
@@ -174,6 +225,7 @@ def simulate_forecast(
             "Outflows remain fixed.",
             "Currency balances are not converted.",
             "Reserve risk is evaluated only in the configured reserve currency.",
+            "Receipts delayed beyond the forecast horizon are excluded.",
             "Worst shortfall is the maximum observed in these simulations, "
             "not a guaranteed upper bound.",
         ],

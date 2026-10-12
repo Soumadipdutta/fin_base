@@ -44,6 +44,7 @@ def generate_forecast(
     # Each event is recorded as (date, currency, amount).
     inflows = defaultdict(lambda: ZERO)
     outflows = defaultdict(lambda: ZERO)
+    receivable_events = []
 
     def scheduled_date(event_date: date) -> date:
         # Overdue items are assumed to occur today.
@@ -91,12 +92,23 @@ def generate_forecast(
         event_date = invoice.expected_date or invoice.due_date
 
         if invoice.direction == "receivable":
+            scheduled = scheduled_date(event_date)
             add_event(
                 inflows,
                 event_date,
                 invoice.currency,
                 invoice.amount,
             )
+
+            if today <= scheduled <= end_date:
+                receivable_events.append(
+                {
+                "invoice_id": invoice.id,
+                "currency": invoice.currency,
+                "amount": str(invoice.amount),
+                "expected_date": scheduled.isoformat(),
+                }
+                )
         elif invoice.direction == "payable":
             add_event(
                 outflows,
@@ -171,4 +183,5 @@ def generate_forecast(
             "Expected amounts and dates are estimates, not guarantees.",
         ],
         "daily_forecast": daily_rows,
+        "receivable_events": receivable_events,
     }

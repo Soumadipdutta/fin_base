@@ -123,3 +123,153 @@ def test_detects_reserve_breach_without_negative_balance():
     assert usd["daily_risk"][0]["probability_below_reserve"] == 0.0
     assert usd["daily_risk"][1]["probability_below_reserve"] == 1.0
     assert Decimal(usd["worst_shortfall_observed"]) == Decimal("10.00")
+
+
+
+def test_invoice_level_events_are_used_independently():
+    forecast = {
+        "company_id": 2,
+        "forecast_start": "2026-10-11",
+        "forecast_end": "2026-10-13",
+        "daily_forecast": [
+            {
+                "date": "2026-10-11",
+                "currency": "USD",
+                "opening_balance": "100.00",
+                "expected_inflows": "100.00",
+                "expected_outflows": "0.00",
+            },
+            {
+                "date": "2026-10-12",
+                "currency": "USD",
+                "opening_balance": "200.00",
+                "expected_inflows": "0.00",
+                "expected_outflows": "150.00",
+            },
+            {
+                "date": "2026-10-13",
+                "currency": "USD",
+                "opening_balance": "50.00",
+                "expected_inflows": "0.00",
+                "expected_outflows": "0.00",
+            },
+        ],
+        "receivable_events": [
+            {
+                "invoice_id": 101,
+                "currency": "USD",
+                "amount": "60.00",
+                "expected_date": "2026-10-11",
+            },
+            {
+                "invoice_id": 102,
+                "currency": "USD",
+                "amount": "40.00",
+                "expected_date": "2026-10-11",
+            },
+        ],
+    }
+
+    result = simulate_forecast(
+        forecast,
+        simulations=100,
+        max_delay_days=0,
+        seed=42,
+    )
+
+    assert result["method"] == "independent_invoice_delay"
+    assert result["results"][0]["probability_ever_below_zero"] == 0.0
+    forecast = {
+        "company_id": 2,
+        "forecast_start": "2026-10-11",
+        "forecast_end": "2026-10-13",
+        "daily_forecast": [
+            {
+                "date": "2026-10-11",
+                "currency": "USD",
+                "opening_balance": "100.00",
+                "expected_inflows": "100.00",
+                "expected_outflows": "0.00",
+            },
+            {
+                "date": "2026-10-12",
+                "currency": "USD",
+                "opening_balance": "200.00",
+                "expected_inflows": "0.00",
+                "expected_outflows": "150.00",
+            },
+            {
+                "date": "2026-10-13",
+                "currency": "USD",
+                "opening_balance": "50.00",
+                "expected_inflows": "0.00",
+                "expected_outflows": "0.00",
+            },
+        ],
+        "receivable_events": [
+            {
+                "invoice_id": 101,
+                "currency": "USD",
+                "amount": "60.00",
+                "expected_date": "2026-10-11",
+            },
+            {
+                "invoice_id": 102,
+                "currency": "USD",
+                "amount": "40.00",
+                "expected_date": "2026-10-11",
+            },
+        ],
+    }
+
+    result = simulate_forecast(
+        forecast,
+        simulations=100,
+        max_delay_days=0,
+        seed=42,
+    )
+
+    assert result["method"] == "independent_invoice_delay"
+    assert result["results"][0]["probability_ever_below_zero"] == 0.0
+
+
+def test_receipt_delayed_beyond_horizon_is_not_counted():
+    forecast = {
+        "company_id": 3,
+        "forecast_start": "2026-10-11",
+        "forecast_end": "2026-10-12",
+        "daily_forecast": [
+            {
+                "date": "2026-10-11",
+                "currency": "USD",
+                "opening_balance": "0.00",
+                "expected_inflows": "100.00",
+                "expected_outflows": "0.00",
+            },
+            {
+                "date": "2026-10-12",
+                "currency": "USD",
+                "opening_balance": "100.00",
+                "expected_inflows": "0.00",
+                "expected_outflows": "50.00",
+            },
+        ],
+        "receivable_events": [
+            {
+                "invoice_id": 201,
+                "currency": "USD",
+                "amount": "100.00",
+                "expected_date": "2026-10-12",
+            }
+        ],
+    }
+
+    result = simulate_forecast(
+        forecast,
+        simulations=100,
+        max_delay_days=0,
+        seed=42,
+    )
+
+    assert result["method"] == "independent_invoice_delay"
+    assert result["results"][0]["probability_ever_below_zero"] == 0.0

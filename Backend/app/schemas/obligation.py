@@ -1,4 +1,3 @@
-
 from datetime import date
 from decimal import Decimal
 from typing import Literal
@@ -10,7 +9,6 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-
 
 class ObligationCreate(BaseModel):
     invoice_id: int | None = Field(default=None, gt=0)

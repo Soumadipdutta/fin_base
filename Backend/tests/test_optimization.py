@@ -238,3 +238,127 @@ def test_recommendation_includes_explanation_and_expected_benefit():
         "projected_reserve_headroom_on_recommended_date": "90.00",
     }
 
+
+def test_optimizer_does_not_defer_payment_to_reserve_breach_date():
+    forecast = {
+        "company_id": 1,
+        "base_currency": "INR",
+        "daily_forecast": [
+            {
+                "date": "2026-10-12",
+                "currency": "INR",
+                "opening_balance": "100.00",
+                "expected_inflows": "0.00",
+                "expected_outflows": "80.00",
+                "closing_balance": "20.00",
+            },
+            {
+                "date": "2026-10-13",
+                "currency": "INR",
+                "opening_balance": "20.00",
+                "expected_inflows": "20.00",
+                "expected_outflows": "0.00",
+                "closing_balance": "40.00",
+            },
+            {
+                "date": "2026-10-14",
+                "currency": "INR",
+                "opening_balance": "40.00",
+                "expected_inflows": "0.00",
+                "expected_outflows": "20.00",
+                "closing_balance": "20.00",
+            },
+        ],
+    }
+
+    result = optimize_payments(
+        forecast=forecast,
+        obligations=[
+            {
+                "id": 501,
+                "currency": "INR",
+                "amount": "80.00",
+                "due_date": "2026-10-12",
+                "flexible_until": "2026-10-14",
+                "priority": "normal",
+            }
+        ],
+        minimum_reserve="30.00",
+    )
+
+    assert all(
+        recommendation["recommended_date"] != "2026-10-14"
+        for recommendation in result["recommendations"]
+    )
+
+def test_multiple_deferrals_preserve_reserve_safety():
+    forecast = {
+        "company_id": 1,
+        "base_currency": "INR",
+        "daily_forecast": [
+            {
+                "date": "2026-10-12",
+                "currency": "INR",
+                "opening_balance": "100.00",
+                "expected_inflows": "0.00",
+                "expected_outflows": "90.00",
+                "closing_balance": "10.00",
+            },
+            {
+                "date": "2026-10-13",
+                "currency": "INR",
+                "opening_balance": "10.00",
+                "expected_inflows": "100.00",
+                "expected_outflows": "0.00",
+                "closing_balance": "110.00",
+            },
+            {
+                "date": "2026-10-14",
+                "currency": "INR",
+                "opening_balance": "110.00",
+                "expected_inflows": "0.00",
+                "expected_outflows": "0.00",
+                "closing_balance": "110.00",
+            },
+        ],
+    }
+
+    obligations = [
+        {
+            "id": 601,
+            "currency": "INR",
+            "amount": "40.00",
+            "due_date": "2026-10-12",
+            "flexible_until": "2026-10-14",
+            "priority": "high",
+        },
+        {
+            "id": 602,
+            "currency": "INR",
+            "amount": "30.00",
+            "due_date": "2026-10-12",
+            "flexible_until": "2026-10-14",
+            "priority": "normal",
+        },
+    ]
+
+    result = optimize_payments(
+        forecast=forecast,
+        obligations=obligations,
+        minimum_reserve="50.00",
+    )
+
+    # Any recommendation must use a permitted date and have
+    # sufficient projected balance on that date.
+    balances = {
+        row["date"]: Decimal(str(row["closing_balance"]))
+        for row in forecast["daily_forecast"]
+    }
+
+    for recommendation in result["recommendations"]:
+        assert (
+            recommendation["original_due_date"]
+            < recommendation["recommended_date"]
+            <= "2026-10-14"
+        )
+        assert balances[recommendation["recommended_date"]] >= Decimal("50.00")

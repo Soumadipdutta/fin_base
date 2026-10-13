@@ -22,6 +22,39 @@ def priority_rank(value) -> int:
 
     return ranks.get(str(value).strip().lower(), 2)
 
+
+def validate_schedule(
+    projected: dict,
+    minimum_reserve: Decimal,
+    base_currency: str,
+) -> dict:
+    """Report reserve breaches in the projected schedule by currency."""
+    breaches = []
+
+    for currency, schedule in projected.items():
+        applicable_reserve = (
+            minimum_reserve if currency == base_currency else ZERO
+        )
+
+        for day in schedule:
+            balance = day["closing_balance"]
+
+            if balance < applicable_reserve:
+                breaches.append({
+                    "currency": currency,
+                    "date": day["date"],
+                    "projected_closing_balance": str(balance),
+                    "applicable_reserve": str(applicable_reserve),
+                    "shortfall": str(applicable_reserve - balance),
+                })
+
+    return {
+        "is_safe": len(breaches) == 0,
+        "breach_count": len(breaches),
+        "breaches": breaches,
+    }
+
+
 def optimize_payments(
     forecast: dict,
     obligations: list[dict],
@@ -202,13 +235,26 @@ def optimize_payments(
         total_deferred[currency] += candidate["amount"]
 
         # Adjust the projected balances after moving the payment.
+
+        # Restore cash on the original due date and keep it available
+        # until the recommended payment date. At the new payment date,
+        # the deferred payment is paid, so its amount is deducted again.
         for day in schedule:
             if original_due <= day["date"] < chosen_date:
                 day["closing_balance"] += candidate["amount"]
 
-            elif day["date"] >= chosen_date:
+            elif day["date"] == chosen_date:
+                day["closing_balance"] -= candidate["amount"]
                 break
 
+            elif day["date"] > chosen_date:
+                break
+
+    schedule_validation = validate_schedule(
+        projected=projected,
+        minimum_reserve=reserve,
+        base_currency=base_currency,
+    )
     return {
         "company_id": forecast.get("company_id"),
         "minimum_reserve": str(reserve),
@@ -224,4 +270,5 @@ def optimize_payments(
             "are not modeled.",
             "Recommendations must be reviewed before payments are changed.",
         ],
+        "schedule_validation": schedule_validation,
     }

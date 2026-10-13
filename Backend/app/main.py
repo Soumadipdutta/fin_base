@@ -11,6 +11,8 @@ from app.api.routes.forecast import router as forecast_router
 from app.api.routes.risks import router as risks_router
 from app.api.routes.simulation import router as simulation_router
 from app.api.routes import optimization
+from app.schemas.obligation import ObligationCreate, ObligationResponse
+from app.schemas.optimization import OptimizationResponse
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -40,6 +42,7 @@ app.include_router(
     prefix="/api/v1",
     tags=["Optimization"],
 )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

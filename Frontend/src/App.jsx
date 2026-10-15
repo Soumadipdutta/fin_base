@@ -31,6 +31,12 @@ import {
   ReferenceLine,
 } from "recharts";
 import "./App.css";
+import { useEffect } from "react";
+import { testCompanyApi } from "./lib/testApi";
+import { useDashboardData } from "./hooks/useDashboardData";
+import { useForecastData } from "./hooks/useForecastData";
+import { useInvoicesData } from "./hooks/useInvoicesData";
+import { useRiskData } from "./hooks/useRiskData";
 
 const navigation = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -61,6 +67,35 @@ const demoRisks = [
   { level: "Medium", title: "Receivable timing uncertainty", detail: "An expected international payment may arrive late.", date: "Next 14 days" },
   { level: "Low", title: "Upcoming obligation", detail: "A scheduled vendor payment is approaching.", date: "Oct 20, 2026" },
 ];
+
+
+function formatMoney(value, currency = "INR") {
+  const amount = Number(value ?? 0);
+
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2,
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+function getArray(response) {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.items)) return response.items;
+  if (Array.isArray(response?.accounts)) return response.accounts;
+  if (Array.isArray(response?.invoices)) return response.invoices;
+  if (Array.isArray(response?.obligations)) return response.obligations;
+  return [];
+}
+
+function getInvoiceLabel(invoice) {
+  return invoice.invoice_number || invoice.reference || `INV-${invoice.id}`;
+}
+
+function getInvoiceDate(invoice) {
+  return invoice.expected_date || invoice.due_date || invoice.issue_date || "No date";
+}
+
 
 function money(value) {
   return new Intl.NumberFormat("en-IN", {
@@ -211,173 +246,1117 @@ function SectionTitle({ title, subtitle, action, onAction }) {
   );
 }
 
-function Dashboard({ setPage }) {
+
+function Dashboard({ setPage, data, loading, error, onRefresh }) {
+  const accounts = getArray(data.accounts);
+  const invoices = getArray(data.invoices);
+  const obligations = getArray(data.obligations);
+  const dailyForecast = data.forecast?.daily_forecast || [];
+
+  // Never add balances from different currencies together.
+  const balancesByCurrency = accounts.reduce((result, account) => {
+    const currency = account.currency || "INR";
+    result[currency] =
+      (result[currency] || 0) + Number(account.balance || 0);
+    return result;
+  }, {});
+
+  const openReceivables = invoices.filter(
+    (item) =>
+      item.direction === "receivable" &&
+      !["paid", "cancelled", "void"].includes(
+        String(item.status || "").toLowerCase()
+      )
+  );
+
+  const openPayables = invoices.filter(
+    (item) =>
+      item.direction === "payable" &&
+      !["paid", "cancelled", "void"].includes(
+        String(item.status || "").toLowerCase()
+      )
+  );
+
+  const receivableTotals = openReceivables.reduce((result, item) => {
+    const currency = item.currency || "INR";
+    result[currency] = (result[currency] || 0) + Number(item.amount || 0);
+    return result;
+  }, {});
+
+  const payableTotals = [...openPayables, ...obligations].reduce(
+    (result, item) => {
+      const currency = item.currency || "INR";
+      result[currency] = (result[currency] || 0) + Number(item.amount || 0);
+      return result;
+    },
+    {}
+  );
+
+  const reserve = Number(data.company?.minimum_reserve || 0);
+  const riskStatus = String(data.risks?.overall_status || "unknown");
+  const riskCount = Number(data.risks?.risk_count || 0);
+
+  // Display the configured reserve currency's forecast only.
+  const baseCurrency = data.company?.base_currency || "INR";
+  const chartData = dailyForecast
+    .filter((item) => item.currency === baseCurrency)
+    .slice(0, 14)
+    .map((item) => ({
+      day: String(item.date).slice(5),
+      balance: Number(item.closing_balance || 0),
+      inflow: Number(item.expected_inflows || 0),
+      outflow: Number(item.expected_outflows || 0),
+    }));
+
+  const upcoming = [
+    ...invoices.map((item) => ({
+      ...item,
+      displayType: item.direction === "payable" ? "Payable" : "Receivable",
+      displayDate: getInvoiceDate(item),
+      displayId: getInvoiceLabel(item),
+    })),
+    ...obligations.map((item) => ({
+      ...item,
+      displayType: "Payable",
+      displayDate: item.due_date || "No date",
+      displayId: `OBL-${item.id}`,
+      counterparty: item.category || "Obligation",
+    })),
+  ]
+    .filter((item) => !["paid", "cancelled", "void"].includes(
+      String(item.status || "").toLowerCase()
+    ))
+    .sort((a, b) => String(a.displayDate).localeCompare(String(b.displayDate)))
+    .slice(0, 4);
+
   return (
     <>
-      <PageHeader title="Dashboard" description="Here's what's happening with your business finances." onRefresh={() => window.location.reload()} />
-      <div className="demo-notice"><span className="notice-dot" /><div><strong>Preview environment</strong><span>Figures on this page are illustrative demo data, not live account balances.</span></div></div>
+      <PageHeader
+        title="Dashboard"
+        description="Here's what's happening with your business finances."
+        onRefresh={onRefresh}
+      />
+
+      <div className="demo-notice">
+        <span className="notice-dot" />
+        <div>
+          <strong>{loading ? "Loading live data" : "Backend-connected dashboard"}</strong>
+          <span>
+            {loading
+              ? "Fetching your company financial data."
+              : "Metrics below use your API responses. Balances remain separated by currency."}
+          </span>
+        </div>
+        <button
+          className="button button-secondary"
+          onClick={onRefresh}
+          disabled={loading}
+        >
+          {loading ? "Loading…" : "Refresh data"}
+        </button>
+      </div>
+
+      {error && (
+        <div className="demo-notice">
+          <span className="notice-dot" />
+          <div>
+            <strong>Some data could not be refreshed</strong>
+            <span>{error}</span>
+          </div>
+        </div>
+      )}
 
       <section className="metrics-grid">
-        <MetricCard title="Total cash balance" value={money(485000)} change="4.8%" direction="positive" note="vs. last month" icon={Wallet} tone="blue" />
-        <MetricCard title="Expected receivables" value={money(247000)} change="12.3%" direction="positive" note="next 30 days" icon={ArrowDownRight} tone="green" />
-        <MetricCard title="Upcoming payables" value={money(126500)} change="8.1%" direction="negative" note="next 30 days" icon={ArrowUpRight} tone="amber" />
-        <MetricCard title="Reserve health" value="Healthy" change="Above target" direction="positive" note="illustrative status" icon={ShieldAlert} tone="purple" />
+        <MetricCard
+          title={`Cash balance · ${baseCurrency}`}
+          value={formatMoney(balancesByCurrency[baseCurrency] || 0, baseCurrency)}
+          change="Live account balance"
+          direction="neutral"
+          note={data.company?.name || "Company account"}
+          icon={Wallet}
+          tone="blue"
+        />
+
+        <MetricCard
+          title={`Open receivables · ${Object.keys(receivableTotals).length || 0} currencies`}
+          value={Object.entries(receivableTotals).map(([currency, amount]) =>
+            formatMoney(amount, currency)
+          ).join(" · ") || "—"}
+          change={`${openReceivables.length} open invoices`}
+          direction="positive"
+          note="Not guaranteed cash"
+          icon={ArrowDownRight}
+          tone="green"
+        />
+
+        <MetricCard
+          title="Open payables"
+          value={Object.entries(payableTotals).map(([currency, amount]) =>
+            formatMoney(amount, currency)
+          ).join(" · ") || "—"}
+          change={`${openPayables.length + obligations.length} records`}
+          direction="negative"
+          note="Invoices plus obligations"
+          icon={ArrowUpRight}
+          tone="amber"
+        />
+
+        <MetricCard
+          title="Liquidity risk"
+          value={riskStatus === "unknown" ? "Unknown" : riskStatus.toUpperCase()}
+          change={`${riskCount} reported risk records`}
+          direction={riskStatus === "critical" ? "negative" : "neutral"}
+          note={`Configured reserve: ${formatMoney(reserve, baseCurrency)}`}
+          icon={ShieldAlert}
+          tone={riskStatus === "critical" ? "red" : "purple"}
+        />
       </section>
 
       <section className="content-grid chart-content-grid">
         <article className="panel cash-panel">
-          <SectionTitle title="Cash flow overview" subtitle="Illustrative inflows, outflows and projected balance" action="View forecast" onAction={() => setPage("forecast")} />
-          <div className="chart-legend-note"><span className="legend-dot blue-dot" /> Closing balance <span className="legend-dot green-dot" /> Incoming <span className="legend-dot amber-dot" /> Outgoing</div>
-          <CashFlowChart />
-          <div className="chart-footer"><span><span className="live-dot" /> Sample 14-day view</span><span>Values in INR</span></div>
+          <SectionTitle
+            title={`Cash flow forecast · ${baseCurrency}`}
+            subtitle="Daily forecast returned by your backend"
+            action="View forecast"
+            onAction={() => setPage("forecast")}
+          />
+
+          {chartData.length > 0 ? (
+            <>
+              <div className="chart-legend-note">
+                <span className="legend-dot blue-dot" /> Closing balance
+                <span className="legend-dot green-dot" /> Incoming
+                <span className="legend-dot amber-dot" /> Outgoing
+              </div>
+
+              <div className="chart-wrap">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData}>
+                    <defs>
+                      <linearGradient id="liveBalanceFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#5688ff" stopOpacity={0.25} />
+                        <stop offset="100%" stopColor="#5688ff" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#263449" strokeDasharray="4 5" vertical={false} />
+                    <XAxis dataKey="day" tick={{ fill: "#8998ae", fontSize: 11 }} />
+                    <YAxis
+                      tick={{ fill: "#8998ae", fontSize: 11 }}
+                      tickFormatter={(value) => `${Math.round(value / 1000)}k`}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: "#111c30",
+                        border: "1px solid #293850",
+                        borderRadius: 12,
+                        color: "#f0f5ff",
+                      }}
+                      formatter={(value, name) => [
+                        formatMoney(value, baseCurrency),
+                        name === "balance" ? "Closing balance" :
+                        name === "inflow" ? "Incoming" : "Outgoing",
+                      ]}
+                    />
+                    <ReferenceLine
+                      y={reserve}
+                      stroke="#e7ad55"
+                      strokeDasharray="5 5"
+                      label={{ value: "Reserve", fill: "#e7ad55", fontSize: 11 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="balance"
+                      stroke="#6590ff"
+                      fill="url(#liveBalanceFill)"
+                      name="balance"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="inflow"
+                      stroke="#27c997"
+                      fill="transparent"
+                      name="inflow"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="outflow"
+                      stroke="#e7ad55"
+                      fill="transparent"
+                      name="outflow"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="chart-footer">
+                <span><span className="live-dot" /> Live API forecast</span>
+                <span>Currency: {baseCurrency}</span>
+              </div>
+            </>
+          ) : (
+            <div className="empty-state">
+              {loading
+                ? "Loading forecast…"
+                : `No forecast rows available for ${baseCurrency}. Check the API response.`}
+            </div>
+          )}
         </article>
 
         <article className="panel health-panel">
-          <SectionTitle title="Financial health" subtitle="A quick look at your cash position" />
+          <SectionTitle
+            title="Financial health"
+            subtitle="Based on the backend's current risk status"
+          />
           <div className="health-ring-wrap">
-            <div className="health-ring"><div><strong>78<span>/100</span></strong><small>Health score</small></div></div>
+            <div className="health-ring">
+              <div>
+                <strong>{riskStatus === "unknown" ? "—" : riskStatus === "critical" ? "!" : "✓"}</strong>
+                <small>Risk status</small>
+              </div>
+            </div>
           </div>
-          <div className="health-status"><span className="status-dot green-bg" /><strong>Good financial position</strong></div>
-          <p className="health-description">Illustrative score only. It is not yet calculated from your live accounts.</p>
-          <div className="health-row"><span>Cash reserve coverage</span><strong>24 days</strong></div>
-          <div className="progress-track"><div className="progress-fill" style={{ width: "72%" }} /></div>
-          <div className="health-row"><span>Receivables collection</span><strong>81%</strong></div>
-          <div className="progress-track"><div className="progress-fill green-fill" style={{ width: "81%" }} /></div>
+          <div className="health-status">
+            <span className={`status-dot ${riskStatus === "critical" ? "" : "green-bg"}`} />
+            <strong>{riskStatus === "unknown" ? "Status unavailable" : `${riskStatus} liquidity risk`}</strong>
+          </div>
+          <p className="health-description">
+            This status comes from the backend risk endpoint. It is not an invented health score.
+          </p>
+          <div className="health-row">
+            <span>Configured minimum reserve</span>
+            <strong>{formatMoney(reserve, baseCurrency)}</strong>
+          </div>
+          <div className="health-row">
+            <span>Other account currencies</span>
+            <strong>{Object.keys(balancesByCurrency).filter((c) => c !== baseCurrency).join(", ") || "None"}</strong>
+          </div>
         </article>
       </section>
 
       <section className="content-grid lower-grid">
         <article className="panel">
-          <SectionTitle title="Upcoming payments" subtitle="Illustrative transactions to keep an eye on" action="View invoices" onAction={() => setPage("invoices")} />
+          <SectionTitle
+            title="Upcoming payments"
+            subtitle="Open invoices and obligations from the API"
+            action="View invoices"
+            onAction={() => setPage("invoices")}
+          />
           <div className="payment-list">
-            {demoInvoices.slice(0, 3).map((invoice) => (
-              <div className="payment-row" key={invoice.id}>
-                <div className={`payment-icon ${invoice.type === "Receivable" ? "payment-in" : "payment-out"}`}>
-                  {invoice.type === "Receivable" ? <ArrowDownRight size={18} /> : <ArrowUpRight size={18} />}
+            {upcoming.map((item) => {
+              const currency = item.currency || baseCurrency;
+              const isReceivable = item.displayType === "Receivable";
+
+              return (
+                <div className="payment-row" key={`${item.displayType}-${item.id}`}>
+                  <div className={`payment-icon ${isReceivable ? "payment-in" : "payment-out"}`}>
+                    {isReceivable ? <ArrowDownRight size={18} /> : <ArrowUpRight size={18} />}
+                  </div>
+                  <div className="payment-info">
+                    <strong>{item.counterparty || item.client || item.category || "Payment"}</strong>
+                    <span>{item.displayId} · {item.displayDate}</span>
+                  </div>
+                  <div className="payment-amount">
+                    <strong>{formatMoney(item.amount, currency)}</strong>
+                    <span className={`status-pill ${isReceivable ? "status-green" : "status-amber"}`}>
+                      {item.status || item.priority || item.displayType}
+                    </span>
+                  </div>
                 </div>
-                <div className="payment-info"><strong>{invoice.client}</strong><span>{invoice.id} · {invoice.date}</span></div>
-                <div className="payment-amount"><strong>{money(invoice.amount)}</strong><span className={`status-pill ${invoice.type === "Receivable" ? "status-green" : "status-amber"}`}>{invoice.status}</span></div>
+              );
+            })}
+            {!upcoming.length && (
+              <div className="empty-state">
+                {loading ? "Loading payments…" : "No open invoices or obligations found."}
               </div>
-            ))}
+            )}
           </div>
         </article>
 
         <article className="panel">
-          <SectionTitle title="Risk alerts" subtitle="Items that may need your attention" action="View risks" onAction={() => setPage("risk")} />
+          <SectionTitle
+            title="Risk alerts"
+            subtitle="Risk records reported by your backend"
+            action="View risks"
+            onAction={() => setPage("risk")}
+          />
           <div className="risk-list">
-            {demoRisks.slice(0, 2).map((risk) => (
-              <div className="risk-row" key={risk.title}>
-                <div className={`risk-indicator risk-${risk.level.toLowerCase()}`}><ShieldAlert size={17} /></div>
-                <div className="risk-copy"><div><strong>{risk.title}</strong><span className={`risk-tag tag-${risk.level.toLowerCase()}`}>{risk.level}</span></div><p>{risk.detail}</p><small><CalendarClock size={13} /> {risk.date}</small></div>
+            {(data.risks?.risks || data.risks?.alerts || []).slice(0, 4).map((risk, index) => {
+              const level = String(risk.severity || risk.level || "medium").toLowerCase();
+
+              return (
+                <div className="risk-row" key={risk.id || `${risk.title}-${index}`}>
+                  <div className={`risk-indicator risk-${level === "critical" ? "high" : level}`}>
+                    <ShieldAlert size={17} />
+                  </div>
+                  <div className="risk-copy">
+                    <div>
+                      <strong>{risk.title || risk.message || "Liquidity risk"}</strong>
+                      <span className={`risk-tag tag-${level === "critical" ? "high" : level}`}>
+                        {level}
+                      </span>
+                    </div>
+                    <p>{risk.detail || risk.description || risk.message || "Review the forecast for details."}</p>
+                    <small><CalendarClock size={13} /> {risk.date || risk.forecast_date || ""}</small>
+                  </div>
+                </div>
+              );
+            })}
+            {!((data.risks?.risks || data.risks?.alerts || []).length) && (
+              <div className="empty-state">
+                {loading
+                  ? "Loading risk alerts…"
+                  : `Overall status: ${riskStatus}. ${riskCount} risk records reported.`}
               </div>
+            )}
+          </div>
+        </article>
+      </section>
+    </>
+  );
+}
+
+
+function Forecast({ onRefresh }) {
+  const {
+    days,
+    setDays,
+    forecast,
+    loading,
+    error,
+    refresh,
+  } = useForecastData(30);
+
+  const [currency, setCurrency] = useState("INR");
+
+  const rows = (forecast?.daily_forecast || []).filter(
+    (item) => item.currency === currency
+  );
+
+  const currencies = [
+    ...new Set(
+      (forecast?.daily_forecast || []).map((item) => item.currency)
+    ),
+  ];
+
+  const money = (value) =>
+    new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+    }).format(Number(value || 0));
+
+  return (
+    <>
+      <PageHeader
+        title="Cash Flow Forecast"
+        description="Explore projected balances, incoming funds, outgoing payments, and reserve shortfalls."
+        onRefresh={refresh}
+      />
+
+      <section className="panel forecast-controls">
+        <div>
+          <span className="field-label">Forecast horizon</span>
+          <div className="segmented-control">
+            {[30, 60, 90].map((option) => (
+              <button
+                key={option}
+                className={days === option ? "active" : ""}
+                onClick={() => setDays(option)}
+              >
+                {option} days
+              </button>
             ))}
           </div>
-        </article>
-      </section>
-    </>
-  );
-}
-
-function Forecast({ setPage }) {
-  const [horizon, setHorizon] = useState("30 days");
-  return (
-    <>
-      <PageHeader title="Cash flow forecast" description="Understand how expected money movements may affect future liquidity." onRefresh={() => window.location.reload()} />
-      <div className="demo-notice"><span className="notice-dot" /><div><strong>Illustrative forecast</strong><span>This preview uses sample data. The live forecast API will be connected next.</span></div></div>
-      <section className="metrics-grid three-metrics">
-        <MetricCard title="Projected closing balance" value={money(485000)} change="Sample estimate" direction="positive" note="selected horizon" icon={Wallet} tone="blue" />
-        <MetricCard title="Expected inflows" value={money(248000)} change="7 events" direction="positive" note="sample transactions" icon={ArrowDownRight} tone="green" />
-        <MetricCard title="Expected outflows" value={money(191000)} change="5 events" direction="negative" note="sample transactions" icon={ArrowUpRight} tone="amber" />
-      </section>
-      <article className="panel forecast-panel">
-        <div className="forecast-toolbar">
-          <SectionTitle title="Projected cash position" subtitle="Sample daily cash movement and closing balance" />
-          <div className="segmented-control">
-            {["30 days", "60 days", "90 days"].map((item) => <button key={item} className={horizon === item ? "segment-active" : ""} onClick={() => setHorizon(item)}>{item}</button>)}
-          </div>
         </div>
-        <CashFlowChart forecast />
-        <div className="reserve-explanation"><span className="legend-dot amber-dot" /><div><strong>Minimum reserve reference: ₹50,000</strong><p>The threshold is illustrative; the forecast endpoint will use your company's configured reserve.</p></div></div>
-      </article>
-      <article className="panel next-step-panel"><div className="next-step-icon"><ChartNoAxesCombined size={21} /></div><div><strong>Connect the live forecast</strong><p>Next, we'll load the company's daily forecast from the FlowPilot API and use the selected horizon to filter the chart.</p></div><button className="button button-secondary" onClick={() => setPage("invoices")}>Explore invoices <ChevronRight size={16} /></button></article>
+
+        <div>
+          <span className="field-label">Currency</span>
+          <select
+            value={currency}
+            onChange={(event) => setCurrency(event.target.value)}
+          >
+            {currencies.includes(currency) ? null : (
+              <option value={currency}>{currency}</option>
+            )}
+            {currencies.map((code) => (
+              <option key={code} value={code}>
+                {code}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
+
+      {error && (
+        <div className="panel error-panel">
+          <strong>Forecast could not be loaded</strong>
+          <p>{error}</p>
+          <button className="button button-secondary" onClick={refresh}>
+            Try again
+          </button>
+        </div>
+      )}
+
+      <section className="metrics-grid forecast-metrics">
+        <MetricCard
+          title="Opening balance"
+          value={rows.length ? money(rows[0].opening_balance) : "—"}
+          note={`First forecast day · ${currency}`}
+          icon={Wallet}
+          tone="blue"
+        />
+        <MetricCard
+          title="Projected closing balance"
+          value={rows.length ? money(rows[rows.length - 1].closing_balance) : "—"}
+          note={`Final day of ${days}-day forecast`}
+          icon={CircleDollarSign}
+          tone="green"
+        />
+        <MetricCard
+          title="Total expected inflows"
+          value={money(rows.reduce((sum, row) => sum + Number(row.expected_inflows || 0), 0))}
+          note="Forecast-period receipts"
+          icon={ArrowDownRight}
+          tone="green"
+        />
+        <MetricCard
+          title="Total expected outflows"
+          value={money(rows.reduce((sum, row) => sum + Number(row.expected_outflows || 0), 0))}
+          note="Forecast-period payments"
+          icon={ArrowUpRight}
+          tone="amber"
+        />
+      </section>
+
+      <section className="panel forecast-chart-panel">
+        <SectionTitle
+          title={`${days}-day projected balance`}
+          subtitle={`Daily forecast values in ${currency}. This is a projection, not a guarantee.`}
+        />
+
+        {loading ? (
+          <div className="empty-state">Loading forecast…</div>
+        ) : rows.length ? (
+          <div className="chart-wrap forecast-large-chart">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={rows}
+                margin={{ top: 12, right: 12, left: 12, bottom: 8 }}
+              >
+                <CartesianGrid
+                  stroke="#263449"
+                  strokeDasharray="4 5"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fill: "#8998ae", fontSize: 11 }}
+                  tickFormatter={(value) => value.slice(5)}
+                  minTickGap={28}
+                />
+                <YAxis
+                  tick={{ fill: "#8998ae", fontSize: 11 }}
+                  tickFormatter={(value) => `${Math.round(value / 1000)}k`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "#111c30",
+                    border: "1px solid #293850",
+                    borderRadius: 12,
+                    color: "#f0f5ff",
+                  }}
+                  formatter={(value, name) => [
+                    money(value),
+                    name === "closing_balance"
+                      ? "Closing balance"
+                      : name === "expected_inflows"
+                        ? "Expected inflows"
+                        : name === "expected_outflows"
+                          ? "Expected outflows"
+                          : name,
+                  ]}
+                  labelFormatter={(label) => `Date: ${label}`}
+                />
+                <ReferenceLine
+                  y={Number(forecast?.minimum_reserve || 0)}
+                  stroke="#e7ad55"
+                  strokeDasharray="5 5"
+                  label={{ value: "Reserve", fill: "#e7ad55", fontSize: 11 }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="closing_balance"
+                  stroke="#6790ff"
+                  fill="#6790ff"
+                  fillOpacity={0.14}
+                  name="closing_balance"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="expected_inflows"
+                  stroke="#27c997"
+                  fill="transparent"
+                  name="expected_inflows"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="expected_outflows"
+                  stroke="#e7ad55"
+                  fill="transparent"
+                  name="expected_outflows"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="empty-state">
+            No forecast rows are available for {currency}.
+          </div>
+        )}
+      </section>
+
+      <section className="panel forecast-table-panel">
+        <SectionTitle
+          title="Daily breakdown"
+          subtitle="Values are kept in their original currency."
+        />
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Opening</th>
+                <th>Inflows</th>
+                <th>Outflows</th>
+                <th>Closing</th>
+                <th>Reserve shortfall</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={`${row.date}-${row.currency}`}>
+                  <td>{row.date}</td>
+                  <td>{money(row.opening_balance)}</td>
+                  <td>{money(row.expected_inflows)}</td>
+                  <td>{money(row.expected_outflows)}</td>
+                  <td className={Number(row.closing_balance) < 0 ? "negative-value" : ""}>
+                    {money(row.closing_balance)}
+                  </td>
+                  <td>
+                    {row.reserve_shortfall == null
+                      ? "—"
+                      : money(row.reserve_shortfall)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </>
   );
 }
 
-function Invoices() {
-  const [filter, setFilter] = useState("All");
+function Invoices({ onRefresh }) {
+  const { invoices, obligations, loading, error, refresh } = useInvoicesData();
   const [search, setSearch] = useState("");
-  const filtered = demoInvoices.filter((item) =>
-    (filter === "All" || item.type === filter) &&
-    `${item.id} ${item.client} ${item.status}`.toLowerCase().includes(search.toLowerCase())
-  );
+  const [direction, setDirection] = useState("all");
+  const [status, setStatus] = useState("all");
+
+  const records = [
+    ...invoices.map((invoice) => ({
+      ...invoice,
+      recordType: "Invoice",
+      recordId: `INV-${invoice.id}`,
+      recordName: invoice.counterparty || invoice.client || "Unnamed counterparty",
+      recordDate: invoice.due_date || invoice.expected_date || invoice.issue_date,
+      recordDirection: invoice.direction || "unknown",
+    })),
+    ...obligations.map((obligation) => ({
+      ...obligation,
+      recordType: "Obligation",
+      recordId: `OBL-${obligation.id}`,
+      recordName: obligation.category || "Payment obligation",
+      recordDate: obligation.due_date,
+      recordDirection: "payable",
+      status: obligation.status || "open",
+    })),
+  ];
+
+  const filtered = records.filter((record) => {
+    const term = search.trim().toLowerCase();
+
+    const matchesSearch =
+      !term ||
+      [
+        record.recordId,
+        record.recordName,
+        record.currency,
+        record.status,
+        record.category,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term));
+
+    const matchesDirection =
+      direction === "all" || record.recordDirection === direction;
+
+    const matchesStatus =
+      status === "all" ||
+      String(record.status || "open").toLowerCase() === status;
+
+    return matchesSearch && matchesDirection && matchesStatus;
+  });
+
+  const money = (amount, currency = "INR") =>
+    new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 2,
+    }).format(Number(amount || 0));
+
   return (
     <>
-      <PageHeader title="Invoices & payments" description="Track incoming payments and outgoing obligations in one place." onRefresh={() => { setSearch(""); setFilter("All"); }} />
-      <div className="demo-notice"><span className="notice-dot" /><div><strong>Sample invoice register</strong><span>These rows are illustrative. Create, update and database persistence will be connected to the API.</span></div></div>
-      <section className="metrics-grid three-metrics">
-        <MetricCard title="Total receivables" value={money(247000)} change="2 sample invoices" direction="positive" note="awaiting collection" icon={ArrowDownRight} tone="green" />
-        <MetricCard title="Total payables" value={money(126500)} change="2 sample bills" direction="negative" note="scheduled obligations" icon={ArrowUpRight} tone="amber" />
-        <MetricCard title="Due this week" value={money(43500)} change="Needs review" direction="neutral" note="sample amount" icon={CalendarClock} tone="purple" />
-      </section>
-      <article className="panel invoices-panel">
-        <SectionTitle title="Invoice register" subtitle={`${filtered.length} sample records`} />
-        <div className="table-toolbar">
-          <div className="search-box"><Search size={17} /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search invoices or clients..." /></div>
-          <div className="filter-tabs">{["All", "Receivable", "Payable"].map((item) => <button key={item} className={filter === item ? "filter-active" : ""} onClick={() => setFilter(item)}>{item === "Receivable" ? "Receivables" : item === "Payable" ? "Payables" : item}</button>)}</div>
-          <button className="button button-secondary" onClick={() => window.alert("Invoice creation will be enabled when the API form is connected.")}>+ New invoice</button>
+      <PageHeader
+        title="Invoices & Payments"
+        description="Track receivables, upcoming obligations, and payment due dates."
+        onRefresh={refresh}
+      />
+
+      {error && (
+        <div className="panel error-panel">
+          <strong>Some records could not be loaded</strong>
+          <p>{error}</p>
+          <button className="button button-secondary" onClick={refresh}>
+            Retry
+          </button>
         </div>
-        <div className="table-scroll"><table className="invoice-table">
-          <thead><tr><th>INVOICE</th><th>CLIENT / VENDOR</th><th>TYPE</th><th>DUE DATE</th><th>AMOUNT</th><th>STATUS</th></tr></thead>
-          <tbody>{filtered.map((item) => <tr key={item.id}>
-            <td><strong className="invoice-id">{item.id}</strong></td>
-            <td><strong>{item.client}</strong></td>
-            <td><span className={`type-label ${item.type === "Receivable" ? "type-in" : "type-out"}`}>{item.type}</span></td>
-            <td>{item.date}</td>
-            <td className="amount-cell">{money(item.amount)}</td>
-            <td><span className={`status-pill ${item.type === "Receivable" ? "status-green" : "status-amber"}`}>{item.status}</span></td>
-          </tr>)}</tbody>
-        </table></div>
-        {filtered.length === 0 && <div className="empty-state">No sample invoices match your search.</div>}
-        <div className="table-footer"><span>Sample records · Not persisted</span><button className="text-action" onClick={() => window.alert("CSV export will be added with the live invoice API.")}><Download size={15} /> Export</button></div>
-      </article>
+      )}
+
+      <section className="metrics-grid">
+        <MetricCard
+          title="Total invoices"
+          value={invoices.length}
+          note="Records returned by the API"
+          icon={ReceiptText}
+          tone="blue"
+        />
+        <MetricCard
+          title="Receivables"
+          value={invoices.filter((item) => item.direction === "receivable").length}
+          note="Incoming invoice records"
+          icon={ArrowDownRight}
+          tone="green"
+        />
+        <MetricCard
+          title="Payables"
+          value={invoices.filter((item) => item.direction === "payable").length}
+          note="Outgoing invoice records"
+          icon={ArrowUpRight}
+          tone="amber"
+        />
+        <MetricCard
+          title="Obligations"
+          value={obligations.length}
+          note="Scheduled payment obligations"
+          icon={CalendarClock}
+          tone="purple"
+        />
+      </section>
+
+      <section className="panel invoices-panel">
+        <div className="invoice-toolbar">
+          <div className="invoice-search">
+            <Search size={17} />
+            <input
+              aria-label="Search financial records"
+              placeholder="Search counterparty, ID, currency…"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+
+          <select
+            aria-label="Filter by direction"
+            value={direction}
+            onChange={(event) => setDirection(event.target.value)}
+          >
+            <option value="all">All directions</option>
+            <option value="receivable">Receivables</option>
+            <option value="payable">Payables</option>
+          </select>
+
+          <select
+            aria-label="Filter by status"
+            value={status}
+            onChange={(event) => setStatus(event.target.value)}
+          >
+            <option value="all">All statuses</option>
+            <option value="open">Open</option>
+            <option value="paid">Paid</option>
+            <option value="overdue">Overdue</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+        </div>
+
+        <div className="table-scroll">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Reference</th>
+                <th>Counterparty / category</th>
+                <th>Type</th>
+                <th>Due date</th>
+                <th>Amount</th>
+                <th>Status / priority</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((record) => (
+                <tr key={`${record.recordType}-${record.id}`}>
+                  <td>
+                    <strong>{record.recordId}</strong>
+                    <div className="muted-cell">{record.recordType}</div>
+                  </td>
+                  <td>{record.recordName}</td>
+                  <td>
+                    {record.recordDirection === "receivable"
+                      ? "Receivable"
+                      : record.recordDirection === "payable"
+                        ? "Payable"
+                        : "Unknown"}
+                  </td>
+                  <td>{record.recordDate || "—"}</td>
+                  <td>{money(record.amount, record.currency || "INR")}</td>
+                  <td>
+                    <span className="status-pill status-amber">
+                      {record.status || record.priority || "Open"}
+                    </span>
+                    {record.priority && (
+                      <div className="muted-cell">
+                        Priority: {record.priority}
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {!loading && filtered.length === 0 && (
+          <div className="empty-state">
+            No records match the selected search and filters.
+          </div>
+        )}
+
+        {loading && <div className="empty-state">Loading financial records…</div>}
+
+        <div className="invoice-table-footer">
+          <span>{filtered.length} of {records.length} records</span>
+          <button
+            className="button button-secondary"
+            onClick={refresh}
+            disabled={loading}
+          >
+            <RefreshCw size={15} />
+            Refresh
+          </button>
+        </div>
+      </section>
     </>
   );
 }
 
-function Risk({ setPage }) {
+function Risk() {
+  const {
+    risks,
+    simulation,
+    optimization,
+    loading,
+    simulationLoading,
+    optimizationLoading,
+    error,
+    refreshRisks,
+    runSimulation,
+    loadOptimization,
+  } = useRiskData();
+
+  const [currency, setCurrency] = useState("INR");
+
+  const currencyResults = (simulation?.currency_results || simulation?.results || [])
+    .filter((item) => !item.currency || item.currency === currency);
+
+  const probability = (value) =>
+    value == null
+      ? "—"
+      : `${(Number(value) * 100).toFixed(1)}%`;
+
+  const money = (value) =>
+    value == null
+      ? "—"
+      : new Intl.NumberFormat("en-IN", {
+          style: "currency",
+          currency,
+          maximumFractionDigits: 2,
+        }).format(Number(value));
+
+  const dailyRisks = risks?.daily_risks || risks?.risks || risks?.alerts || [];
+
   return (
     <>
-      <PageHeader title="Risk & simulation" description="Explore potential liquidity risks and understand what could happen under uncertainty." onRefresh={() => window.location.reload()} />
-      <div className="demo-notice"><span className="notice-dot" /><div><strong>Simulation preview</strong><span>Sample visualizations only. The Monte Carlo endpoint will provide real scenario results from your backend.</span></div></div>
-      <section className="metrics-grid three-metrics">
-        <MetricCard title="Risk alerts" value="3" change="1 high priority" direction="negative" note="sample alerts" icon={ShieldAlert} tone="red" />
-        <MetricCard title="Reserve breach probability" value="18%" change="Illustrative only" direction="negative" note="sample scenario" icon={ChartNoAxesCombined} tone="amber" />
-        <MetricCard title="Suggested deferrals" value="2" change="Requires review" direction="neutral" note="sample recommendations" icon={CalendarClock} tone="blue" />
+      <PageHeader
+        title="Risk & Simulation"
+        description="Inspect liquidity warnings, run cash-flow scenarios, and review optimization output."
+        onRefresh={refreshRisks}
+      />
+
+      {error && (
+        <div className="panel error-panel">
+          <strong>Some risk data could not be loaded</strong>
+          <p>{String(error)}</p>
+          <button className="button button-secondary" onClick={refreshRisks}>
+            Retry risk data
+          </button>
+        </div>
+      )}
+
+      <section className="metrics-grid">
+        <MetricCard
+          title="Overall risk status"
+          value={String(risks?.overall_status || "Unknown").toUpperCase()}
+          note="Status returned by backend"
+          icon={ShieldAlert}
+          tone={risks?.overall_status === "critical" ? "red" : "amber"}
+        />
+        <MetricCard
+          title="Reported risk records"
+          value={risks?.risk_count ?? "—"}
+          note="Records returned by risk analysis"
+          icon={Bell}
+          tone="amber"
+        />
+        <MetricCard
+          title="Monte Carlo runs"
+          value={simulation?.simulations ?? simulation?.simulation_count ?? "—"}
+          note={simulation ? "Simulation response received" : "Run a simulation below"}
+          icon={ChartNoAxesCombined}
+          tone="blue"
+        />
+        <MetricCard
+          title="Schedule validation"
+          value={
+            optimization?.schedule_validation?.is_safe == null
+              ? "Not checked"
+              : optimization.schedule_validation.is_safe
+                ? "Safe"
+                : "Breaches found"
+          }
+          note="Backend schedule validation"
+          icon={ShieldAlert}
+          tone={optimization?.schedule_validation?.is_safe ? "green" : "red"}
+        />
       </section>
-      <section className="content-grid risk-content-grid">
+
+      <section className="content-grid risk-main-grid">
         <article className="panel">
-          <SectionTitle title="Liquidity risk outlook" subtitle="Sample balances under an illustrative scenario" />
-          <CashFlowChart forecast />
-          <div className="risk-chart-foot"><span className="legend-dot amber-dot" /> Reserve threshold is illustrative, not a live risk calculation.</div>
-        </article>
-        <article className="panel">
-          <SectionTitle title="Risk alerts" subtitle="Example risk register" />
-          <div className="risk-list full-risk-list">
-            {demoRisks.map((risk) => <div className="risk-row" key={risk.title}>
-              <div className={`risk-indicator risk-${risk.level.toLowerCase()}`}><ShieldAlert size={17} /></div>
-              <div className="risk-copy"><div><strong>{risk.title}</strong><span className={`risk-tag tag-${risk.level.toLowerCase()}`}>{risk.level}</span></div><p>{risk.detail}</p><small><CalendarClock size={13} /> {risk.date}</small></div>
-            </div>)}
+          <SectionTitle
+            title="Monte Carlo simulation"
+            subtitle="Test how uncertain invoice receipt timing affects projected liquidity."
+          />
+
+          <div className="risk-toolbar">
+            <label>
+              <span className="field-label">Currency</span>
+              <select
+                value={currency}
+                onChange={(event) => setCurrency(event.target.value)}
+              >
+                <option value="INR">INR</option>
+                <option value="USD">USD</option>
+              </select>
+            </label>
+
+            <button
+              className="button button-primary"
+              onClick={runSimulation}
+              disabled={simulationLoading}
+            >
+              {simulationLoading ? "Running…" : "Run simulation"}
+            </button>
           </div>
+
+          {currencyResults.length > 0 ? (
+            <div className="scenario-grid">
+              {currencyResults.map((result, index) => (
+                <div className="scenario-card" key={result.currency || index}>
+                  <span className="field-label">
+                    {result.currency || currency} scenario
+                  </span>
+                  <strong>
+                    {probability(result.probability_ever_below_zero)}
+                  </strong>
+                  <p>Probability of going below zero</p>
+                  <div className="scenario-divider" />
+                  <span className="field-label">Reserve breach probability</span>
+                  <strong>
+                    {probability(result.probability_ever_below_reserve)}
+                  </strong>
+                  <p>Probability of falling below configured reserve</p>
+                  <div className="scenario-divider" />
+                  <span className="field-label">Worst observed shortfall</span>
+                  <strong>
+                    {result.worst_shortfall_observed == null
+                      ? "—"
+                      : money(result.worst_shortfall_observed)}
+                  </strong>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              {simulationLoading
+                ? "Running simulation…"
+                : "Run the simulation to view the returned scenario metrics."}
+            </div>
+          )}
+
+          {simulation?.limitations?.length > 0 && (
+            <div className="limitations">
+              <strong>Simulation limitations</strong>
+              <ul>
+                {simulation.limitations.map((item, index) => (
+                  <li key={index}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </article>
+
+        <article className="panel">
+          <SectionTitle
+            title="Optimization recommendations"
+            subtitle="Review proposed payment changes and schedule validation."
+          />
+
+          <button
+            className="button button-secondary"
+            onClick={loadOptimization}
+            disabled={optimizationLoading}
+          >
+            {optimizationLoading ? "Checking…" : "Check payment schedule"}
+          </button>
+
+          {optimization && (
+            <>
+              <div className="optimization-status">
+                <span>Schedule validation</span>
+                <strong>
+                  {optimization.schedule_validation?.is_safe
+                    ? "No reported breaches"
+                    : `${optimization.schedule_validation?.breach_count ?? 0} breaches`}
+                </strong>
+              </div>
+
+              {(optimization.recommendations || []).length ? (
+                <div className="recommendation-list">
+                  {optimization.recommendations.map((item, index) => (
+                    <div className="recommendation-row" key={item.id || index}>
+                      <div>
+                        <strong>
+                          {item.description ||
+                            item.reason ||
+                            `Recommendation ${index + 1}`}
+                        </strong>
+                        <p>
+                          {item.currency || currency}
+                          {item.amount != null ? ` · ${money(item.amount)}` : ""}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  The backend returned no payment recommendations. This does
+                  not mean the schedule is safe.
+                </div>
+              )}
+
+              {optimization.limitations?.length > 0 && (
+                <div className="limitations">
+                  <strong>Optimization limitations</strong>
+                  <ul>
+                    {optimization.limitations.map((item, index) => (
+                      <li key={index}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
         </article>
       </section>
-      <article className="panel recommendations-panel">
-        <SectionTitle title="Optimization recommendations" subtitle="Example actions that would require validation against live obligations and reserves." />
-        <div className="recommendation-row"><div className="recommendation-number">01</div><div className="recommendation-copy"><strong>Review flexible vendor payment</strong><p>Check whether a non-urgent obligation can be rescheduled without fees or contract issues.</p></div><span className="recommendation-impact">Potential liquidity relief</span></div>
-        <div className="recommendation-row"><div className="recommendation-number">02</div><div className="recommendation-copy"><strong>Confirm expected receivable date</strong><p>Verify the payment date before relying on the incoming funds to cover an obligation.</p></div><span className="recommendation-impact">Reduce uncertainty</span></div>
-        <div className="recommendation-disclaimer">These are general example actions, not recommendations generated from your live company data.</div>
-        <button className="button button-primary" onClick={() => setPage("forecast")}>Review forecast <ChevronRight size={16} /></button>
-      </article>
+
+      <section className="panel risk-records-panel">
+        <SectionTitle
+          title="Risk records"
+          subtitle="Review risk entries returned by the backend."
+        />
+
+        {loading ? (
+          <div className="empty-state">Loading risk records…</div>
+        ) : dailyRisks.length ? (
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Currency</th>
+                  <th>Severity</th>
+                  <th>Closing balance</th>
+                  <th>Reserve shortfall</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyRisks.map((item, index) => (
+                  <tr key={item.id || `${item.date}-${item.currency}-${index}`}>
+                    <td>{item.date || item.forecast_date || "—"}</td>
+                    <td>{item.currency || "—"}</td>
+                    <td>
+                      <span className="status-pill status-amber">
+                        {item.severity || item.level || "Unspecified"}
+                      </span>
+                    </td>
+                    <td>
+                      {item.closing_balance == null
+                        ? "—"
+                        : new Intl.NumberFormat("en-IN", {
+                            style: "currency",
+                            currency: item.currency || currency,
+                            maximumFractionDigits: 2,
+                          }).format(Number(item.closing_balance))}
+                    </td>
+                    <td>
+                      {item.reserve_shortfall == null
+                        ? "—"
+                        : new Intl.NumberFormat("en-IN", {
+                            style: "currency",
+                            currency: item.currency || currency,
+                            maximumFractionDigits: 2,
+                          }).format(Number(item.reserve_shortfall))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty-state">
+            No detailed risk rows were found in the risk response. Check the
+            response schema in Swagger if you expect individual records.
+          </div>
+        )}
+      </section>
     </>
   );
 }
@@ -386,6 +1365,10 @@ function App() {
   const [page, setPage] = useState("dashboard");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
+  useEffect(() => {
+  testCompanyApi();
+  }, []);
+  const dashboardData = useDashboardData();
   const titles = {
     dashboard: "Dashboard",
     forecast: "Cash flow forecast",
@@ -403,10 +1386,38 @@ function App() {
           <span className="mobile-page-title">{titles[page]}</span>
         </div>
         <div className="page-content">
-          {page === "dashboard" && <Dashboard setPage={setPage} />}
-          {page === "forecast" && <Forecast setPage={setPage} />}
+          {dashboardData.loading && (
+  <div className="demo-notice">
+    <span className="notice-dot" />
+    <div>
+      <strong>Loading FlowPilot data</strong>
+      <span>Fetching your company, accounts, forecast and risk information.</span>
+    </div>
+  </div>
+)}
+
+{dashboardData.error && (
+  <div className="demo-notice">
+    <span className="notice-dot" />
+    <div>
+      <strong>Some data could not be loaded</strong>
+      <span>{dashboardData.error}</span>
+      <button onClick={dashboardData.refresh}>Try again</button>
+    </div>
+  </div>
+)}
+          {page === "dashboard" && (
+  <Dashboard
+    setPage={setPage}
+    data={dashboardData}
+    loading={dashboardData.loading}
+    error={dashboardData.error}
+    onRefresh={dashboardData.refresh}
+  />
+)}
+          {page === "forecast" && <Forecast />}
           {page === "invoices" && <Invoices />}
-          {page === "risk" && <Risk setPage={setPage} />}
+          {page === "risk" && <Risk />}
           <footer className="app-footer"><span>FlowPilot <span className="footer-separator">/</span> Financial intelligence for growing teams</span><span>Dark mode <span className="footer-dot" /></span></footer>
         </div>
       </main>

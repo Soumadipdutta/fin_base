@@ -585,3 +585,47 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--blue); outl
     padding: 15px;
   }
 }
+.api-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.api-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.api-status-connected .api-status-dot {
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(39, 201, 151, 0.4);
+}
+
+.api-status-disconnected .api-status-dot {
+  background: var(--red);
+}
+
+.api-status-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+}
+
+.api-status-refresh:hover {
+  color: var(--text);
+  background: var(--panel-hover);
+}

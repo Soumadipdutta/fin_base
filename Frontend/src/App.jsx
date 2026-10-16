@@ -37,6 +37,7 @@ import { useDashboardData } from "./hooks/useDashboardData";
 import { useForecastData } from "./hooks/useForecastData";
 import { useInvoicesData } from "./hooks/useInvoicesData";
 import { useRiskData } from "./hooks/useRiskData";
+import { useApiStatus } from "./hooks/useApiStatus";
 
 const navigation = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -163,6 +164,7 @@ function Sidebar({ page, setPage, open, close }) {
 }
 
 function PageHeader({ title, description, onRefresh }) {
+  const { status: apiStatus, checkStatus } = useApiStatus();
   return (
     <header className="page-header">
       <div className="header-title">
@@ -170,11 +172,35 @@ function PageHeader({ title, description, onRefresh }) {
         <h1>{title}</h1>
         <p>{description}</p>
       </div>
+      
+      <div className={`api-status api-status-${apiStatus}`}>
+  <span className="api-status-dot" />
+
+  <span>
+    {apiStatus === "connected"
+      ? "API connected"
+      : apiStatus === "checking"
+        ? "Checking API..."
+        : "API disconnected"}
+  </span>
+
+  <button
+    type="button"
+    onClick={checkStatus}
+    className="api-status-refresh"
+    title="Check API connection"
+  >
+    <RefreshCw size={14} />
+  </button>
+</div>
+
       <div className="header-actions">
         <span className="demo-badge"><span /> DEMO DATA</span>
         <button className="icon-button notification-button" aria-label="Notifications"><Bell size={19} /><i /></button>
         <button className="button button-secondary" onClick={onRefresh}><RefreshCw size={15} /> Refresh view</button>
       </div>
+
+      
     </header>
   );
 }
@@ -1364,6 +1390,7 @@ function Risk() {
 function App() {
   const [page, setPage] = useState("dashboard");
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // const { status: apiStatus, checkStatus } = useApiStatus();
 
   useEffect(() => {
   testCompanyApi();

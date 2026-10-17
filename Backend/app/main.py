@@ -13,6 +13,7 @@ from app.api.routes.simulation import router as simulation_router
 from app.api.routes import optimization
 from app.schemas.obligation import ObligationCreate, ObligationResponse
 from app.schemas.optimization import OptimizationResponse
+from app.routers.copilot import router as copilot_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -42,7 +43,7 @@ app.include_router(
     prefix="/api/v1",
     tags=["Optimization"],
 )
-
+app.include_router(copilot_router, prefix="/api/v1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

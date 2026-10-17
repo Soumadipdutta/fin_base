@@ -30,3 +30,10 @@ export const getSimulation = (params = {}) =>
 
 export const getOptimization = (payload = {}) =>
   api.post(`${companyPath}/optimization`, payload);
+
+
+export const sendCopilotMessage = (message, history = []) =>
+  api.post(`/companies/${COMPANY_ID}/copilot/chat`, {
+    message,
+    history,
+  });

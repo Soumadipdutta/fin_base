@@ -18,6 +18,7 @@ import {
   Download,
   RefreshCw,
   CircleHelp,
+  Bot,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -38,12 +39,14 @@ import { useForecastData } from "./hooks/useForecastData";
 import { useInvoicesData } from "./hooks/useInvoicesData";
 import { useRiskData } from "./hooks/useRiskData";
 import { useApiStatus } from "./hooks/useApiStatus";
+import Copilot from "./pages/Copilot.jsx";
 
 const navigation = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "forecast", label: "Cash Flow Forecast", icon: ChartNoAxesCombined },
   { id: "invoices", label: "Invoices & Payments", icon: ReceiptText },
   { id: "risk", label: "Risk & Simulation", icon: ShieldAlert },
+  { id: "copilot", label: "AI Copilot", icon: Bot },
 ];
 
 const demoCashFlow = [
@@ -1401,6 +1404,7 @@ function App() {
     forecast: "Cash flow forecast",
     invoices: "Invoices & payments",
     risk: "Risk & simulation",
+    copilot: "AI Copilot",
   };
 
   return (
@@ -1445,6 +1449,7 @@ function App() {
           {page === "forecast" && <Forecast />}
           {page === "invoices" && <Invoices />}
           {page === "risk" && <Risk />}
+          {page === "copilot" && <Copilot />}
           <footer className="app-footer"><span>FlowPilot <span className="footer-separator">/</span> Financial intelligence for growing teams</span><span>Dark mode <span className="footer-dot" /></span></footer>
         </div>
       </main>

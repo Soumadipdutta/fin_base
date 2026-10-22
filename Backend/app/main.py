@@ -1,8 +1,9 @@
-
+import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.api.routes.companies import router as companies_router
 from app.api.routes.accounts import router as accounts_router
 from app.api.routes.invoices import router as invoices_router
@@ -14,7 +15,11 @@ from app.api.routes import optimization
 from app.schemas.obligation import ObligationCreate, ObligationResponse
 from app.schemas.optimization import OptimizationResponse
 from app.routers.copilot import router as copilot_router
+from app.routers import copilot_memory
+from app.routers import copilot_conversations
+from app.core.company_access import require_allowed_company
 
+logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("FlowPilot API is starting...")
@@ -31,6 +36,25 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    logger.error(
+        "Unhandled exception on %s %s",
+        request.method,
+        request.url.path,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An unexpected server error occurred."
+        },
+    )
 app.include_router(companies_router, prefix="/api/v1")
 app.include_router(accounts_router, prefix="/api/v1")
 app.include_router(invoices_router, prefix="/api/v1")
@@ -44,6 +68,19 @@ app.include_router(
     tags=["Optimization"],
 )
 app.include_router(copilot_router, prefix="/api/v1")
+app.include_router(
+    copilot_memory.router,
+    prefix="/api/v1",
+)
+app.include_router(
+    copilot_conversations.router,
+    prefix="/api/v1",
+)
+app.include_router(
+    companies_router,
+    prefix="/api/v1",
+    dependencies=[Depends(require_allowed_company)],
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

@@ -37,3 +37,130 @@ export const sendCopilotMessage = (message, history = []) =>
     message,
     history,
   });
+
+  
+
+export async function streamCopilotMessage(
+  message,
+  conversationId,
+  { onToken, onMeta } = {}
+) {
+  const response = await fetch(
+    `${import.meta.env.VITE_API_BASE_URL}/companies/${import.meta.env.VITE_COMPANY_ID}/copilot/chat/stream`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        conversation_id: conversationId || null,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = `Copilot request failed (${response.status})`;
+
+    try {
+      const body = await response.json();
+      detail =
+        typeof body.detail === "string"
+          ? body.detail
+          : JSON.stringify(body.detail ?? body);
+    } catch {
+      // Keep the HTTP status message if the response isn't JSON.
+    }
+
+    throw new Error(detail);
+  }
+
+  if (!response.body) {
+    throw new Error("The browser did not receive a readable response stream.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let finalResult = null;
+
+  function processEvent(eventText) {
+    let eventName = "message";
+    const dataLines = [];
+
+    for (const line of eventText.split(/\r?\n/)) {
+      if (line.startsWith("event:")) {
+        eventName = line.slice(6).trim();
+      } else if (line.startsWith("data:")) {
+        dataLines.push(line.slice(5).trimStart());
+      }
+    }
+
+    if (!dataLines.length) return;
+
+    const payload = JSON.parse(dataLines.join("\n"));
+
+    if (eventName === "meta") {
+      onMeta?.(payload);
+    } else if (eventName === "token") {
+      onToken?.(payload.token ?? "");
+    } else if (eventName === "done") {
+      finalResult = payload;
+    } else if (eventName === "error") {
+      throw new Error(payload.message || "Copilot streaming failed.");
+    }
+  }
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+
+      if (done) {
+        buffer += decoder.decode();
+        break;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+
+      const events = buffer.split(/\r?\n\r?\n/);
+      buffer = events.pop() ?? "";
+
+      for (const eventText of events) {
+        processEvent(eventText);
+      }
+    }
+
+    // Process a final event even if the stream ends without a blank line.
+    if (buffer.trim()) {
+      processEvent(buffer);
+    }
+
+    if (!finalResult) {
+      throw new Error("The stream ended without a final completion event.");
+    }
+
+    return finalResult;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+
+export const getCopilotMemories = () =>
+  api.get(`/companies/${COMPANY_ID}/copilot/memories`);
+
+export const deleteCopilotMemory = (memoryId) =>
+  api.delete(
+    `/companies/${COMPANY_ID}/copilot/memories/${memoryId}`
+  );
+
+export const getCopilotConversations = () =>
+  api.get(`/companies/${COMPANY_ID}/copilot/conversations`);
+
+export const getCopilotConversationMessages = (conversationId) =>
+  api.get(
+    `/companies/${COMPANY_ID}/copilot/conversations/${encodeURIComponent(conversationId)}/messages`
+  );
+
+  export const deleteCopilotConversation = (conversationId) =>
+  api.delete(
+    `/companies/${COMPANY_ID}/copilot/conversations/${encodeURIComponent(conversationId)}`
+  );

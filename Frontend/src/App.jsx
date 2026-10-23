@@ -1,17 +1,3 @@
-<<<<<<< HEAD
-import { useEffect, useState } from "react";
-import { Menu } from "lucide-react";
-import Sidebar from "./components/Sidebar";
-import Dashboard from "./pages/Dashboard";
-import Forecast from "./pages/Forecast";
-import Invoices from "./pages/Invoices";
-import Risk from "./pages/Risk";
-import Copilot from "./pages/Copilot.jsx";
-import { testCompanyApi } from "./lib/testApi";
-import { useDashboardData } from "./hooks/useDashboardData";
-import "./App.css";
-=======
-
 import { useState } from "react";
 import {
   LayoutDashboard,
@@ -32,6 +18,7 @@ import {
   Download,
   RefreshCw,
   CircleHelp,
+  SlidersHorizontal,
   Bot,
 } from "lucide-react";
 import {
@@ -55,6 +42,7 @@ import { useRiskData } from "./hooks/useRiskData";
 import { useApiStatus } from "./hooks/useApiStatus";
 import Copilot from "./pages/Copilot.jsx";
 import MemoryManager from "./pages/MemoryManager";
+import ScenarioPlanner from "./components/ScenarioPlanner";
 
 const navigation = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -62,6 +50,7 @@ const navigation = [
   { id: "invoices", label: "Invoices & Payments", icon: ReceiptText },
   { id: "risk", label: "Risk & Simulation", icon: ShieldAlert },
   { id: "copilot", label: "AI Copilot", icon: Bot },
+  { id: "scenarios", label: "What-if Planner", icon: SlidersHorizontal},
 ];
 
 const demoCashFlow = [
@@ -104,6 +93,7 @@ function getArray(response) {
   if (Array.isArray(response?.accounts)) return response.accounts;
   if (Array.isArray(response?.invoices)) return response.invoices;
   if (Array.isArray(response?.obligations)) return response.obligations;
+  if (Array.isArray(response?.daily_forecast)) return response.daily_forecast;
   return [];
 }
 
@@ -128,7 +118,9 @@ function Sidebar({ page, setPage, open, close }) {
   return (
     <>
       {open && <button className="mobile-overlay" onClick={close} aria-label="Close navigation" />}
-      <aside className={`sidebar ${open ? "sidebar-open" : ""}`}>
+      <aside
+  className={`sidebar ${open ? "sidebar-open" : ""}`}
+>
         <div className="brand">
           <div className="brand-mark"><CircleDollarSign size={24} /></div>
           <div>
@@ -165,10 +157,13 @@ function Sidebar({ page, setPage, open, close }) {
           ))}
         </nav>
         <button
-  onClick={() => setPage("memory")}
-  className="flex items-center gap-2 rounded-lg px-4 py-2"
+  className={`nav-link ${page === "memory" ? "nav-link-active" : ""}`}
+  onClick={() => {
+    setPage("memory");
+    close();
+  }}
 >
-  <Brain size={18} />
+  <Brain size={19} strokeWidth={1.8} />
   <span>Memory</span>
 </button>
 
@@ -1413,7 +1408,6 @@ function Risk() {
     </>
   );
 }
->>>>>>> 88a0b24 (Updated commit)
 
 function App() {
   const [page, setPage] = useState("dashboard");
@@ -1455,15 +1449,13 @@ function App() {
           {page === "invoices" && <Invoices />}
           {page === "risk" && <Risk />}
           {page === "copilot" && <Copilot />}
-<<<<<<< HEAD
+          {page === "scenarios" && <ScenarioPlanner />}
           <footer className="app-footer"><span>FlowPilot <span className="footer-separator">/</span> Financial intelligence for growing teams</span><span>Balances stay in their original currencies</span></footer>
-=======
           {page === "memory" && <MemoryManager /> }
           
 
 
           <footer className="app-footer"><span>FlowPilot <span className="footer-separator">/</span> Financial intelligence for growing teams</span><span>Dark mode <span className="footer-dot" /></span></footer>
->>>>>>> 88a0b24 (Updated commit)
         </div>
       </main>
     </div>

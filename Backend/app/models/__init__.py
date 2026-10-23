@@ -5,6 +5,7 @@ from app.models.invoice import Invoice
 from app.models.obligation import Obligation
 from app.models.conversation import CopilotConversation, CopilotMessage
 from app.models.memory import CopilotMemory
+from app.models.saved_scenario import SavedScenario
 
 __all__ = [
     "Account",
@@ -14,4 +15,5 @@ __all__ = [
     "CopilotConversation",
     "CopilotMessage",
     "CopilotMemory",
+    "SavedScenario",
 ]

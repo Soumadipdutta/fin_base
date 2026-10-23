@@ -21,6 +21,9 @@
   padding: 25px 16px 15px;
   border-right: 1px solid #1c293b;
   background: #0d1523;
+  height: 100vh;
+  /* overflow-y: auto; */
+  box-sizing: border-box;
 }
 .brand { display: flex; align-items: center; gap: 11px; padding: 0 8px 29px; }
 .brand-mark { display: grid; width: 39px; height: 39px; place-items: center; border-radius: 13px; color: #091322; background: linear-gradient(145deg,#91b0ff,#6390f3); box-shadow: 0 8px 24px #4773db38; }

@@ -160,7 +160,62 @@ export const getCopilotConversationMessages = (conversationId) =>
     `/companies/${COMPANY_ID}/copilot/conversations/${encodeURIComponent(conversationId)}/messages`
   );
 
-  export const deleteCopilotConversation = (conversationId) =>
+export const deleteCopilotConversation = (conversationId) =>
   api.delete(
     `/companies/${COMPANY_ID}/copilot/conversations/${encodeURIComponent(conversationId)}`
   );
+
+
+export async function previewScenario(params = {}) {
+  const response = await api.post(
+    `/companies/${COMPANY_ID}/scenarios/preview`,
+    {
+      days: params.days ?? 30,
+      payment_delay_days: params.payment_delay_days ?? 0,
+      revenue_reduction_pct: params.revenue_reduction_pct ?? 0,
+      expense_increase_pct: params.expense_increase_pct ?? 0,
+    }
+  );
+
+  return response.data;
+}
+
+
+export async function saveScenario(params = {}) {
+  const response = await api.post(
+    `/companies/${COMPANY_ID}/scenarios`,
+    {
+      name: params.name ?? "Untitled scenario",
+      days: params.days ?? 30,
+      payment_delay_days: params.payment_delay_days ?? 0,
+      revenue_reduction_pct: params.revenue_reduction_pct ?? 0,
+      expense_increase_pct: params.expense_increase_pct ?? 0,
+    }
+  );
+
+  return response.data;
+}
+
+export async function getSavedScenarios() {
+  const response = await api.get(
+    `/companies/${COMPANY_ID}/scenarios`
+  );
+
+  return response.data;
+}
+
+export async function getSavedScenario(scenarioId) {
+  const response = await api.get(
+    `/companies/${COMPANY_ID}/scenarios/${scenarioId}`
+  );
+
+  return response.data;
+}
+
+export async function deleteSavedScenario(scenarioId) {
+  const response = await api.delete(
+    `/companies/${COMPANY_ID}/scenarios/${scenarioId}`
+  );
+
+  return response.status === 204;
+}

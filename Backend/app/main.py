@@ -18,7 +18,10 @@ from app.routers.copilot import router as copilot_router
 from app.routers import copilot_memory
 from app.routers import copilot_conversations
 from app.core.company_access import require_allowed_company
+from app.api.routes import scenarios
+from dotenv import load_dotenv
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -80,6 +83,10 @@ app.include_router(
     companies_router,
     prefix="/api/v1",
     dependencies=[Depends(require_allowed_company)],
+)
+app.include_router(
+    scenarios.router,
+    prefix="/api/v1",
 )
 app.add_middleware(
     CORSMiddleware,

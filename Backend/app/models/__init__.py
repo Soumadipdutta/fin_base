@@ -6,6 +6,7 @@ from app.models.obligation import Obligation
 from app.models.conversation import CopilotConversation, CopilotMessage
 from app.models.memory import CopilotMemory
 from app.models.saved_scenario import SavedScenario
+from app.models.optimization_run import OptimizationRun
 
 __all__ = [
     "Account",

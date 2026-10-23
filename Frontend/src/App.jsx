@@ -16,9 +16,12 @@ import {
   Menu,
   X,
   Download,
+  GitCompareArrows,
   RefreshCw,
   CircleHelp,
   SlidersHorizontal,
+  TrendingUp,
+  Clock, 
   Bot,
 } from "lucide-react";
 import {
@@ -43,6 +46,9 @@ import { useApiStatus } from "./hooks/useApiStatus";
 import Copilot from "./pages/Copilot.jsx";
 import MemoryManager from "./pages/MemoryManager";
 import ScenarioPlanner from "./components/ScenarioPlanner";
+import ScenarioComparison from "./pages/ScenarioComparison.jsx";
+import Optimization from "./pages/Optimization.jsx";
+import OptimizationHistory from "./pages/OptimizationHistory.jsx";
 
 const navigation = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -51,6 +57,9 @@ const navigation = [
   { id: "risk", label: "Risk & Simulation", icon: ShieldAlert },
   { id: "copilot", label: "AI Copilot", icon: Bot },
   { id: "scenarios", label: "What-if Planner", icon: SlidersHorizontal},
+  { id: "comparison", label: "Scenario Comparison", icon: GitCompareArrows},
+  { id: "optimization", label: "Financial Optimization", icon: TrendingUp},
+  { id: "optimization-history", label: "Optimization History", icon: Clock},
 ];
 
 const demoCashFlow = [
@@ -1424,6 +1433,8 @@ function App() {
     invoices: "Invoices & payments",
     risk: "Risk & simulation",
     copilot: "AI Copilot",
+    comparison: "Scenario Comparison",
+    optimization: "Financial Optimization",
   };
 
   return (
@@ -1450,12 +1461,15 @@ function App() {
           {page === "risk" && <Risk />}
           {page === "copilot" && <Copilot />}
           {page === "scenarios" && <ScenarioPlanner />}
+          {page === "comparison" && <ScenarioComparison />}
+          {page === "optimization" && <Optimization />}
+          {page === "optimization-history" && <OptimizationHistory />}
           <footer className="app-footer"><span>FlowPilot <span className="footer-separator">/</span> Financial intelligence for growing teams</span><span>Balances stay in their original currencies</span></footer>
           {page === "memory" && <MemoryManager /> }
           
 
 
-          <footer className="app-footer"><span>FlowPilot <span className="footer-separator">/</span> Financial intelligence for growing teams</span><span>Dark mode <span className="footer-dot" /></span></footer>
+          {/* <footer className="app-footer"><span>FlowPilot <span className="footer-separator">/</span> Financial intelligence for growing teams</span><span>Dark mode <span className="footer-dot" /></span></footer> */}
         </div>
       </main>
     </div>

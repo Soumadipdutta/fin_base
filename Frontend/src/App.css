@@ -22,7 +22,7 @@
   border-right: 1px solid #1c293b;
   background: #0d1523;
   height: 100vh;
-  /* overflow-y: auto; */
+  overflow-y: auto;
   box-sizing: border-box;
 }
 .brand { display: flex; align-items: center; gap: 11px; padding: 0 8px 29px; }

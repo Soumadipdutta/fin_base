@@ -1,5 +1,6 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -8,7 +9,8 @@ from app.models.company import Company
 from app.models.obligation import Obligation
 from app.services.forecasting import generate_forecast
 from app.services.optimization import optimize_payments
-
+from app.models.optimization_run import OptimizationRun
+from app.schemas.optimization import OptimizationResponse
 
 router = APIRouter()
 
@@ -80,4 +82,17 @@ def get_payment_optimization(
             detail=str(exc),
         ) from exc
 
+    run = OptimizationRun(
+        company_id=company_id,
+        horizon_days=days,
+        recommendation_count=len(result["recommendations"]),
+        is_safe=result["schedule_validation"]["is_safe"],
+        breach_count=result["schedule_validation"]["breach_count"],
+        result=result,
+    )
+
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+    result=jsonable_encoder(result),
     return result

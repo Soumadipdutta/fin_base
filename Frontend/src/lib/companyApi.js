@@ -1,6 +1,5 @@
 import api from "./api";
 import { COMPANY_ID } from "./config";
-
 const companyPath = `/companies/${COMPANY_ID}`;
 
 export const getCompany = () =>
@@ -37,8 +36,6 @@ export const sendCopilotMessage = (message, history = []) =>
     message,
     history,
   });
-
-  
 
 export async function streamCopilotMessage(
   message,
@@ -105,8 +102,12 @@ export async function streamCopilotMessage(
     } else if (eventName === "done") {
       finalResult = payload;
     } else if (eventName === "error") {
-      throw new Error(payload.message || "Copilot streaming failed.");
-    }
+  throw new Error(
+    payload.detail ||
+      payload.message ||
+      "Copilot streaming failed."
+  );
+}
   }
 
   try {
@@ -219,3 +220,33 @@ export async function deleteSavedScenario(scenarioId) {
 
   return response.status === 204;
 }
+
+export async function compareScenarios(scenarioIds = []) {
+  const results = await Promise.all(
+    scenarioIds.map(async (id) => {
+      const scenario = await getSavedScenario(id);
+
+      const preview = await previewScenario({
+        days: scenario.days,
+        payment_delay_days: scenario.payment_delay_days,
+        revenue_reduction_pct: Number(
+          scenario.revenue_reduction_pct
+        ),
+        expense_increase_pct: Number(
+          scenario.expense_increase_pct
+        ),
+      });
+
+      return {
+        scenario,
+        preview,
+      };
+    })
+  );
+
+  return results;
+}
+
+
+export const getOptimizationHistory = (params = {}) =>
+  api.get(`${companyPath}/optimization/history`, { params });

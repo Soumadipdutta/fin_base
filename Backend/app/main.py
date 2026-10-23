@@ -19,6 +19,7 @@ from app.routers import copilot_memory
 from app.routers import copilot_conversations
 from app.core.company_access import require_allowed_company
 from app.api.routes import scenarios
+from app.api.routes.optimization_routes import (router as optimization_history_router)
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -58,7 +59,7 @@ async def global_exception_handler(
             "detail": "An unexpected server error occurred."
         },
     )
-app.include_router(companies_router, prefix="/api/v1")
+# app.include_router(companies_router, prefix="/api/v1")
 app.include_router(accounts_router, prefix="/api/v1")
 app.include_router(invoices_router, prefix="/api/v1")
 app.include_router(obligations_router, prefix="/api/v1")
@@ -87,6 +88,12 @@ app.include_router(
 app.include_router(
     scenarios.router,
     prefix="/api/v1",
+)
+app.include_router(
+    optimization_history_router,
+    prefix="/api/v1",
+    tags=["Optimization History"],
+    dependencies=[Depends(require_allowed_company)],
 )
 app.add_middleware(
     CORSMiddleware,

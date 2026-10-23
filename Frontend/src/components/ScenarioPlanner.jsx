@@ -23,6 +23,7 @@ import {
   saveScenario,
   getSavedScenarios,
   getSavedScenario,
+  deleteSavedScenario,
 } from "../lib/companyApi";
 
 const panelStyle = {
@@ -111,11 +112,12 @@ async function loadScenarioHistory() {
   try {
     const data = await getSavedScenarios();
     setSavedScenarios(Array.isArray(data) ? data : []);
+    setError("");
   } catch (err) {
     setError(
       err.response?.data?.detail ||
-      err.message ||
-      "Unable to load saved scenarios."
+        err.message ||
+        "Unable to load saved scenarios."
     );
   } finally {
     setHistoryLoading(false);
@@ -220,19 +222,15 @@ async function handleDeleteScenario() {
   try {
     await deleteSavedScenario(selectedScenarioId);
 
-    setSavedScenarios((current) =>
-      current.filter(
-        (scenario) => String(scenario.id) !== String(selectedScenarioId)
-      )
-    );
-
     setSelectedScenarioId("");
-    setNotice("Scenario deleted successfully.");
+    setNotice(`Deleted "${selected.name}".`);
+
+    await loadScenarioHistory();
   } catch (err) {
     setError(
       err.response?.data?.detail ||
-      err.message ||
-      "Unable to delete scenario."
+        err.message ||
+        "Unable to delete scenario."
     );
   }
 }

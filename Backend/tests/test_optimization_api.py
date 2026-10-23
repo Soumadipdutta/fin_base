@@ -33,6 +33,10 @@ class FakeScalars:
 
 
 class FakeDB:
+    def __init__(self):
+        self.added_objects = []
+        self.committed = False
+
     def get(self, model, company_id):
         if company_id == 1:
             return FakeCompany(company_id)
@@ -40,6 +44,15 @@ class FakeDB:
 
     def scalars(self, statement):
         return FakeScalars()
+
+    def add(self, obj):
+        self.added_objects.append(obj)
+
+    def commit(self):
+        self.committed = True
+
+    def refresh(self, obj):
+        pass
 
 
 def fake_get_db():
@@ -102,7 +115,13 @@ def test_optimization_endpoint_returns_result(monkeypatch):
 
         assert response.status_code == 200, response.text
         body = response.json()
-        assert isinstance(body, dict)
-        assert body
+        assert isinstance(body, list)
+        assert len(body) > 0
+
+        result = body[0]
+        assert isinstance(result, dict)
+        assert "company_id" in result
+        assert "recommendations" in result
+        assert "schedule_validation" in result
     finally:
         app.dependency_overrides.pop(get_db, None)

@@ -14,8 +14,9 @@ import PageHeader from "../components/PageHeader";
 import MetricCard from "../components/MetricCard";
 import SectionTitle from "../components/SectionTitle";
 import { useForecastData } from "../hooks/useForecastData";
+import { formatCompact, formatDate } from "../lib/financeFormatters";
 
-function Forecast({ onRefresh }) {
+function Forecast({ baseCurrency = "INR", minimumReserve }) {
   const {
     days,
     setDays,
@@ -25,17 +26,28 @@ function Forecast({ onRefresh }) {
     refresh,
   } = useForecastData(30);
 
-  const [currency, setCurrency] = useState("INR");
-
-  const rows = (forecast?.daily_forecast || []).filter(
-    (item) => item.currency === currency
-  );
+  // null until the user picks one, so the default can follow the data.
+  const [selectedCurrency, setCurrency] = useState(null);
 
   const currencies = [
     ...new Set(
       (forecast?.daily_forecast || []).map((item) => item.currency)
     ),
   ];
+
+  const currency = currencies.includes(selectedCurrency)
+    ? selectedCurrency
+    : currencies.includes(baseCurrency) || !currencies.length
+      ? baseCurrency
+      : currencies[0];
+
+  const rows = (forecast?.daily_forecast || []).filter(
+    (item) => item.currency === currency
+  );
+
+  // The reserve only applies to the company's base currency.
+  const reserve = currency === baseCurrency ? Number(minimumReserve || 0) : 0;
+  const shortfallDays = rows.filter((row) => Number(row.reserve_shortfall) > 0).length;
 
   const money = (value) =>
     new Intl.NumberFormat("en-IN", {
@@ -72,6 +84,7 @@ function Forecast({ onRefresh }) {
         <div>
           <span className="field-label">Currency</span>
           <select
+            aria-label="Forecast currency"
             value={currency}
             onChange={(event) => setCurrency(event.target.value)}
           >
@@ -131,7 +144,11 @@ function Forecast({ onRefresh }) {
       <section className="panel forecast-chart-panel">
         <SectionTitle
           title={`${days}-day projected balance`}
-          subtitle={`Daily forecast values in ${currency}. This is a projection, not a guarantee.`}
+          subtitle={
+            reserve > 0
+              ? `Daily values in ${currency}. ${shortfallDays} of ${rows.length} days end below the ${money(reserve)} reserve.`
+              : `Daily forecast values in ${currency}. This is a projection, not a guarantee.`
+          }
         />
 
         {loading ? (
@@ -150,13 +167,14 @@ function Forecast({ onRefresh }) {
                 />
                 <XAxis
                   dataKey="date"
-                  tick={{ fill: "#8998ae", fontSize: 11 }}
-                  tickFormatter={(value) => value.slice(5)}
+                  tick={{ fill: "#8998ae", fontSize: 12 }}
+                  tickFormatter={(value) => formatDate(value, { withYear: false })}
                   minTickGap={28}
                 />
                 <YAxis
-                  tick={{ fill: "#8998ae", fontSize: 11 }}
-                  tickFormatter={(value) => `${Math.round(value / 1000)}k`}
+                  tick={{ fill: "#8998ae", fontSize: 12 }}
+                  tickFormatter={formatCompact}
+                  width={56}
                 />
                 <Tooltip
                   contentStyle={{
@@ -175,14 +193,16 @@ function Forecast({ onRefresh }) {
                           ? "Expected outflows"
                           : name,
                   ]}
-                  labelFormatter={(label) => `Date: ${label}`}
+                  labelFormatter={(label) => formatDate(label)}
                 />
-                <ReferenceLine
-                  y={Number(forecast?.minimum_reserve || 0)}
-                  stroke="#e7ad55"
-                  strokeDasharray="5 5"
-                  label={{ value: "Reserve", fill: "#e7ad55", fontSize: 11 }}
-                />
+                {reserve > 0 && (
+                  <ReferenceLine
+                    y={reserve}
+                    stroke="#e7ad55"
+                    strokeDasharray="5 5"
+                    label={{ value: "Reserve", fill: "#e7ad55", fontSize: 12, position: "insideTopRight" }}
+                  />
+                )}
                 <Area
                   type="monotone"
                   dataKey="closing_balance"
@@ -213,6 +233,17 @@ function Forecast({ onRefresh }) {
             No forecast rows are available for {currency}.
           </div>
         )}
+
+        {forecast?.assumptions?.length > 0 && (
+          <div className="limitations limitations-neutral">
+            <strong>Forecast assumptions</strong>
+            <ul>
+              {forecast.assumptions.map((item, index) => (
+                <li key={index}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       <section className="panel forecast-table-panel">
@@ -225,25 +256,28 @@ function Forecast({ onRefresh }) {
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Opening</th>
-                <th>Inflows</th>
-                <th>Outflows</th>
-                <th>Closing</th>
-                <th>Reserve shortfall</th>
+                <th className="numeric">Opening</th>
+                <th className="numeric">Inflows</th>
+                <th className="numeric">Outflows</th>
+                <th className="numeric">Closing</th>
+                <th className="numeric">Reserve shortfall</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={`${row.date}-${row.currency}`}>
-                  <td>{row.date}</td>
-                  <td>{money(row.opening_balance)}</td>
-                  <td>{money(row.expected_inflows)}</td>
-                  <td>{money(row.expected_outflows)}</td>
-                  <td className={Number(row.closing_balance) < 0 ? "negative-value" : ""}>
+                <tr
+                  key={`${row.date}-${row.currency}`}
+                  className={Number(row.reserve_shortfall) > 0 ? "row-flagged" : ""}
+                >
+                  <td>{formatDate(row.date)}</td>
+                  <td className="numeric">{money(row.opening_balance)}</td>
+                  <td className="numeric">{Number(row.expected_inflows) ? `+${money(row.expected_inflows)}` : "—"}</td>
+                  <td className="numeric">{Number(row.expected_outflows) ? `−${money(row.expected_outflows)}` : "—"}</td>
+                  <td className={`numeric ${Number(row.closing_balance) < 0 ? "negative-value" : ""}`}>
                     {money(row.closing_balance)}
                   </td>
-                  <td>
-                    {row.reserve_shortfall == null
+                  <td className={`numeric ${Number(row.reserve_shortfall) > 0 ? "warning-value" : ""}`}>
+                    {row.reserve_shortfall == null || Number(row.reserve_shortfall) === 0
                       ? "—"
                       : money(row.reserve_shortfall)}
                   </td>

@@ -1,10 +1,19 @@
 import { useState } from "react";
-import { ArrowDownRight, ArrowUpRight, CalendarClock, Search, RefreshCw } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, CalendarClock, ReceiptText, Search, RefreshCw } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import MetricCard from "../components/MetricCard";
 import { useInvoicesData } from "../hooks/useInvoicesData";
+import {
+  describeDueDate,
+  formatDate,
+  formatMoney,
+  getPaymentStatus,
+  STATUS_PILL_CLASS,
+} from "../lib/financeFormatters";
 
-function Invoices({ onRefresh }) {
+const PRIORITY_CLASS = { critical: "priority-critical", high: "priority-high" };
+
+function Invoices() {
   const { invoices, obligations, loading, error, refresh } = useInvoicesData();
   const [search, setSearch] = useState("");
   const [direction, setDirection] = useState("all");
@@ -18,6 +27,7 @@ function Invoices({ onRefresh }) {
       recordName: invoice.counterparty || invoice.client || "Unnamed counterparty",
       recordDate: invoice.due_date || invoice.expected_date || invoice.issue_date,
       recordDirection: invoice.direction || "unknown",
+      recordStatus: getPaymentStatus(invoice),
     })),
     ...obligations.map((obligation) => ({
       ...obligation,
@@ -26,9 +36,9 @@ function Invoices({ onRefresh }) {
       recordName: obligation.category || "Payment obligation",
       recordDate: obligation.due_date,
       recordDirection: "payable",
-      status: obligation.status || "open",
+      recordStatus: getPaymentStatus(obligation),
     })),
-  ];
+  ].sort((a, b) => String(a.recordDate).localeCompare(String(b.recordDate)));
 
   const filtered = records.filter((record) => {
     const term = search.trim().toLowerCase();
@@ -39,7 +49,7 @@ function Invoices({ onRefresh }) {
         record.recordId,
         record.recordName,
         record.currency,
-        record.status,
+        record.recordStatus,
         record.category,
       ]
         .filter(Boolean)
@@ -49,18 +59,13 @@ function Invoices({ onRefresh }) {
       direction === "all" || record.recordDirection === direction;
 
     const matchesStatus =
-      status === "all" ||
-      String(record.status || "open").toLowerCase() === status;
+      status === "all" || record.recordStatus === status;
 
     return matchesSearch && matchesDirection && matchesStatus;
   });
 
-  const money = (amount, currency = "INR") =>
-    new Intl.NumberFormat("en-IN", {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 2,
-    }).format(Number(amount || 0));
+  const overdueCount = records.filter((record) => record.recordStatus === "overdue").length;
+  const criticalCount = obligations.filter((item) => item.priority === "critical").length;
 
   return (
     <>
@@ -85,28 +90,32 @@ function Invoices({ onRefresh }) {
         <MetricCard
           title="Total invoices"
           value={invoices.length}
-          note="Records returned by the API"
+          change={overdueCount ? `${overdueCount} overdue` : "None overdue"}
+          direction={overdueCount ? "negative" : "neutral"}
+          note="Receivable and payable"
           icon={ReceiptText}
           tone="blue"
         />
         <MetricCard
           title="Receivables"
           value={invoices.filter((item) => item.direction === "receivable").length}
-          note="Incoming invoice records"
+          note="Money owed to you"
           icon={ArrowDownRight}
           tone="green"
         />
         <MetricCard
           title="Payables"
           value={invoices.filter((item) => item.direction === "payable").length}
-          note="Outgoing invoice records"
+          note="Bills you owe"
           icon={ArrowUpRight}
           tone="amber"
         />
         <MetricCard
           title="Obligations"
           value={obligations.length}
-          note="Scheduled payment obligations"
+          change={criticalCount ? `${criticalCount} critical` : ""}
+          direction="neutral"
+          note="Scheduled payments"
           icon={CalendarClock}
           tone="purple"
         />
@@ -124,27 +133,29 @@ function Invoices({ onRefresh }) {
             />
           </div>
 
-          <select
-            aria-label="Filter by direction"
-            value={direction}
-            onChange={(event) => setDirection(event.target.value)}
-          >
-            <option value="all">All directions</option>
-            <option value="receivable">Receivables</option>
-            <option value="payable">Payables</option>
-          </select>
+          <div className="invoice-filters">
+            <select
+              aria-label="Filter by direction"
+              value={direction}
+              onChange={(event) => setDirection(event.target.value)}
+            >
+              <option value="all">All directions</option>
+              <option value="receivable">Receivables</option>
+              <option value="payable">Payables</option>
+            </select>
 
-          <select
-            aria-label="Filter by status"
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-          >
-            <option value="all">All statuses</option>
-            <option value="open">Open</option>
-            <option value="paid">Paid</option>
-            <option value="overdue">Overdue</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+            <select
+              aria-label="Filter by status"
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+            >
+              <option value="all">All statuses</option>
+              <option value="open">Open</option>
+              <option value="overdue">Overdue</option>
+              <option value="paid">Paid</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
         </div>
 
         <div className="table-scroll">
@@ -155,39 +166,53 @@ function Invoices({ onRefresh }) {
                 <th>Counterparty / category</th>
                 <th>Type</th>
                 <th>Due date</th>
-                <th>Amount</th>
+                <th className="numeric">Amount</th>
                 <th>Status / priority</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((record) => (
-                <tr key={`${record.recordType}-${record.id}`}>
-                  <td>
-                    <strong>{record.recordId}</strong>
-                    <div className="muted-cell">{record.recordType}</div>
-                  </td>
-                  <td>{record.recordName}</td>
-                  <td>
-                    {record.recordDirection === "receivable"
-                      ? "Receivable"
-                      : record.recordDirection === "payable"
-                        ? "Payable"
-                        : "Unknown"}
-                  </td>
-                  <td>{record.recordDate || "—"}</td>
-                  <td>{money(record.amount, record.currency || "INR")}</td>
-                  <td>
-                    <span className="status-pill status-amber">
-                      {record.status || record.priority || "Open"}
-                    </span>
-                    {record.priority && (
-                      <div className="muted-cell">
-                        Priority: {record.priority}
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((record) => {
+                const dueNote = describeDueDate(record);
+
+                return (
+                  <tr key={`${record.recordType}-${record.id}`}>
+                    <td>
+                      <strong>{record.recordId}</strong>
+                      <div className="muted-cell">{record.recordType}</div>
+                    </td>
+                    <td className="capitalize">{record.recordName}</td>
+                    <td>
+                      {record.recordDirection === "receivable"
+                        ? "Receivable"
+                        : record.recordDirection === "payable"
+                          ? "Payable"
+                          : "Unknown"}
+                    </td>
+                    <td>
+                      {formatDate(record.recordDate)}
+                      {dueNote && (
+                        <div className={`muted-cell ${record.recordStatus === "overdue" ? "negative-value" : ""}`}>
+                          {dueNote}
+                        </div>
+                      )}
+                      {record.flexible_until && (
+                        <div className="muted-cell">Flexible until {formatDate(record.flexible_until)}</div>
+                      )}
+                    </td>
+                    <td className="numeric">{formatMoney(record.amount, record.currency || "INR")}</td>
+                    <td>
+                      <span className={`status-pill ${STATUS_PILL_CLASS[record.recordStatus] || ""}`}>
+                        {record.recordStatus}
+                      </span>
+                      {record.priority && (
+                        <div className={`muted-cell ${PRIORITY_CLASS[record.priority] || ""}`}>
+                          Priority: {record.priority}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -201,7 +226,7 @@ function Invoices({ onRefresh }) {
         {loading && <div className="empty-state">Loading financial records…</div>}
 
         <div className="invoice-table-footer">
-          <span>{filtered.length} of {records.length} records</span>
+          <span>{filtered.length} of {records.length} records · sorted by due date</span>
           <button
             className="button button-secondary"
             onClick={refresh}

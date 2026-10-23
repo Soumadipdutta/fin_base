@@ -3,12 +3,15 @@ import {
   getRisks,
   getSimulation,
   getOptimization,
+  getObligations,
 } from "../lib/companyApi";
+import { getErrorMessage } from "../lib/errors";
 
 export function useRiskData() {
   const [risks, setRisks] = useState(null);
   const [simulation, setSimulation] = useState(null);
   const [optimization, setOptimization] = useState(null);
+  const [obligations, setObligations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [simulationLoading, setSimulationLoading] = useState(false);
   const [optimizationLoading, setOptimizationLoading] = useState(false);
@@ -22,11 +25,7 @@ export function useRiskData() {
       const response = await getRisks();
       setRisks(response.data);
     } catch (err) {
-      setError(
-        err.response?.data?.detail ||
-          err.message ||
-          "Could not load risk data."
-      );
+      setError(getErrorMessage(err, "Could not load risk data."));
     } finally {
       setLoading(false);
     }
@@ -37,15 +36,11 @@ export function useRiskData() {
     setError("");
 
     try {
-      // Uses backend defaults until the simulation parameter schema is confirmed.
+      // Uses the backend defaults: 30 days, 1,000 runs, receipts delayed up to 7 days.
       const response = await getSimulation();
       setSimulation(response.data);
     } catch (err) {
-      setError(
-        err.response?.data?.detail ||
-          err.message ||
-          "Could not run the simulation."
-      );
+      setError(getErrorMessage(err, "Could not run the simulation."));
     } finally {
       setSimulationLoading(false);
     }
@@ -56,15 +51,18 @@ export function useRiskData() {
     setError("");
 
     try {
-      // The optimization endpoint may require a request body.
-      const response = await getOptimization({});
+      // Obligations are only used to label recommendations, so a failure
+      // there should not hide the optimization result.
+      const [response, obligationsResponse] = await Promise.all([
+        getOptimization({}),
+        getObligations().catch(() => null),
+      ]);
       setOptimization(response.data);
+      if (Array.isArray(obligationsResponse?.data)) {
+        setObligations(obligationsResponse.data);
+      }
     } catch (err) {
-      setError(
-        err.response?.data?.detail ||
-          err.message ||
-          "Could not load optimization results."
-      );
+      setError(getErrorMessage(err, "Could not load optimization results."));
     } finally {
       setOptimizationLoading(false);
     }
@@ -78,6 +76,7 @@ export function useRiskData() {
     risks,
     simulation,
     optimization,
+    obligations,
     loading,
     simulationLoading,
     optimizationLoading,

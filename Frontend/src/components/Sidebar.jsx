@@ -8,6 +8,8 @@ import {
   ChevronRight,
   CircleHelp,
   Bot,
+  SlidersHorizontal,
+  Brain,
   X,
 } from "lucide-react";
 
@@ -17,9 +19,15 @@ const navigation = [
   { id: "invoices", label: "Invoices & Payments", icon: ReceiptText },
   { id: "risk", label: "Risk & Simulation", icon: ShieldAlert },
   { id: "copilot", label: "AI Copilot", icon: Bot },
+  { id: "scenarios", label: "What-if Planner", icon: SlidersHorizontal },
+  { id: "memory", label: "Memory", icon: Brain },
 ];
 
-function Sidebar({ page, setPage, open, close }) {
+function Sidebar({ page, setPage, open, close, companyName, riskStatus, riskCount }) {
+  // Each risk record is one forecast day below zero or below the reserve.
+  const flaggedDays = Number(riskCount || 0);
+  const showRiskCount = flaggedDays > 0 && (riskStatus === "warning" || riskStatus === "critical");
+
   return (
     <>
       {open && <button className="mobile-overlay" onClick={close} aria-label="Close navigation" />}
@@ -37,7 +45,7 @@ function Sidebar({ page, setPage, open, close }) {
         <div className="workspace">
           <div className="workspace-avatar">S</div>
           <div className="workspace-copy">
-            <strong>Startup workspace</strong>
+            <strong>{companyName || "Startup workspace"}</strong>
             <span>Demo environment</span>
           </div>
           <ChevronRight size={16} className="muted-icon" />
@@ -53,7 +61,14 @@ function Sidebar({ page, setPage, open, close }) {
             >
               <Icon size={19} strokeWidth={1.8} />
               <span>{label}</span>
-              {id === "risk" && <span className="nav-count">2</span>}
+              {id === "risk" && showRiskCount && (
+                <span
+                  className={`nav-count ${riskStatus === "critical" ? "nav-count-critical" : ""}`}
+                  title={`${flaggedDays} forecast ${flaggedDays === 1 ? "day" : "days"} flagged`}
+                >
+                  {flaggedDays}
+                </span>
+              )}
             </button>
           ))}
         </nav>

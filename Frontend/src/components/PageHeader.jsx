@@ -31,14 +31,14 @@ function PageHeader({ title, description, onRefresh, loading = false }) {
         </button>
       </div>
 
-      <div className="header-actions">
-        <button className="button button-secondary" onClick={onRefresh} disabled={loading}>
-          <RefreshCw size={14} className={loading ? "spin" : ""} />
-          {loading ? "Refreshing…" : "Refresh data"}
-        </button>
-      </div>
-
-      
+      {onRefresh && (
+        <div className="header-actions">
+          <button className="button button-secondary" onClick={onRefresh} disabled={loading}>
+            <RefreshCw size={14} className={loading ? "spin" : ""} />
+            {loading ? "Refreshing…" : "Refresh data"}
+          </button>
+        </div>
+      )}
     </header>
   );
 }

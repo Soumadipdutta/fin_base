@@ -1,5 +1,5 @@
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Bot,
   Send,
@@ -45,12 +45,28 @@ export default function Copilot() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [conversationId, setConversationId] = useState(null);
+  const messagesRef = useRef(null);
+  // Follow streamed tokens only while the reader is already at the bottom.
+  const followLatest = useRef(true);
+
+  useEffect(() => {
+    const list = messagesRef.current;
+    if (list && followLatest.current) {
+      list.scrollTop = list.scrollHeight;
+    }
+  }, [messages, loading]);
+
+  function handleMessagesScroll(event) {
+    const list = event.currentTarget;
+    followLatest.current = list.scrollHeight - list.scrollTop - list.clientHeight < 80;
+  }
 
   async function submitMessage(text) {
     const message = text.trim();
 
     if (!message || loading) return;
 
+    followLatest.current = true;
     setInput("");
     setError("");
     setLoading(true);
@@ -184,7 +200,12 @@ export default function Copilot() {
       </div>
 
       <div className="copilot-chat">
-        <div className="copilot-messages" aria-live="polite">
+        <div
+          className="copilot-messages"
+          aria-live="polite"
+          ref={messagesRef}
+          onScroll={handleMessagesScroll}
+        >
           {messages.map((message, index) => (
             <article
               className={`copilot-message copilot-message-${message.role}`}
@@ -209,17 +230,18 @@ export default function Copilot() {
                     message.role === "assistant" &&
                     index === messages.length - 1 &&
                     !message.content && (
-                      <span>Investigating your financial data...</span>
+                      <span className="copilot-pending">Investigating your financial data…</span>
                     )}
                 </div>
               </div>
             </article>
           ))}
 
-          {loading && (
+          {/* Shown once tokens are arriving; the empty bubble covers the wait before that. */}
+          {loading && messages.at(-1)?.content && (
             <div className="copilot-thinking">
               <Sparkles size={17} />
-              Generating response...
+              Still writing…
             </div>
           )}
         </div>

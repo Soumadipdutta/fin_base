@@ -45,8 +45,9 @@ export async function streamCopilotMessage(
   conversationId,
   { onToken, onMeta } = {}
 ) {
+  // Same base URL and company as the axios client, including its fallbacks.
   const response = await fetch(
-    `${import.meta.env.VITE_API_BASE_URL}/companies/${import.meta.env.VITE_COMPANY_ID}/copilot/chat/stream`,
+    `${api.defaults.baseURL}${companyPath}/copilot/chat/stream`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -105,7 +106,7 @@ export async function streamCopilotMessage(
     } else if (eventName === "done") {
       finalResult = payload;
     } else if (eventName === "error") {
-      throw new Error(payload.message || "Copilot streaming failed.");
+      throw new Error(payload.detail || payload.message || "Copilot streaming failed.");
     }
   }
 

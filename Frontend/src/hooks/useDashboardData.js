@@ -49,10 +49,10 @@ export function useDashboardData() {
     requests.forEach((result, index) => {
       const name = names[index];
 
+      // Failed requests keep whatever was loaded before.
       if (result.status === "fulfilled") {
         nextData[name] = result.value.data;
       } else {
-        nextData[name] = data[name];
         failures.push(name);
         console.error(`Failed to load ${name}:`, result.reason);
       }

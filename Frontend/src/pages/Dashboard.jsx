@@ -18,7 +18,24 @@ import {
 import PageHeader from "../components/PageHeader";
 import MetricCard from "../components/MetricCard";
 import SectionTitle from "../components/SectionTitle";
-import { formatMoney, getArray, getInvoiceLabel, getInvoiceDate } from "../lib/financeFormatters";
+import {
+  formatMoney,
+  formatCompact,
+  formatDate,
+  getArray,
+  getInvoiceLabel,
+  getInvoiceDate,
+  getPaymentStatus,
+  groupRiskPeriods,
+  RISK_TONE,
+  RISK_TITLES,
+} from "../lib/financeFormatters";
+
+const HEALTH_COPY = {
+  healthy: "No day in the next 30 days falls below zero or below your minimum reserve.",
+  warning: "Cash is projected to dip below your minimum reserve. Review the flagged periods below.",
+  critical: "Cash is projected to go below zero. Review the flagged periods below.",
+};
 
 function Dashboard({ setPage, data, loading, error, onRefresh }) {
   const accounts = getArray(data.accounts);
@@ -68,6 +85,10 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
   const reserve = Number(data.company?.minimum_reserve || 0);
   const riskStatus = String(data.risks?.overall_status || "unknown").toLowerCase();
   const riskCount = Number(data.risks?.risk_count || 0);
+  const riskLabel = riskStatus === "unknown"
+    ? "Unknown"
+    : riskStatus.charAt(0).toUpperCase() + riskStatus.slice(1);
+  const riskPeriods = groupRiskPeriods(data.risks?.risks);
 
   // Display the configured reserve currency's forecast only.
   const baseCurrency = data.company?.base_currency || "INR";
@@ -75,7 +96,7 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
     .filter((item) => item.currency === baseCurrency)
     .slice(0, 14)
     .map((item) => ({
-      day: String(item.date).slice(5),
+      day: item.date,
       balance: Number(item.closing_balance || 0),
       inflow: Number(item.expected_inflows || 0),
       outflow: Number(item.expected_outflows || 0),
@@ -169,12 +190,12 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
 
         <MetricCard
           title="Liquidity risk"
-          value={riskStatus === "unknown" ? "Unknown" : riskStatus.toUpperCase()}
-          change={`${riskCount} reported risk records`}
-          direction={riskStatus === "critical" ? "negative" : "neutral"}
-          note={`Configured reserve: ${formatMoney(reserve, baseCurrency)}`}
+          value={riskLabel}
+          change={`${riskCount} ${riskCount === 1 ? "day" : "days"} flagged`}
+          direction={riskStatus === "warning" || riskStatus === "critical" ? "negative" : "neutral"}
+          note={`Minimum reserve: ${formatMoney(reserve, baseCurrency)}`}
           icon={ShieldAlert}
-          tone={riskStatus === "critical" ? "red" : "purple"}
+          tone={RISK_TONE[riskStatus] || "purple"}
         />
       </section>
 
@@ -205,10 +226,16 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
                       </linearGradient>
                     </defs>
                     <CartesianGrid stroke="#263449" strokeDasharray="4 5" vertical={false} />
-                    <XAxis dataKey="day" tick={{ fill: "#8998ae", fontSize: 11 }} />
+                    <XAxis
+                      dataKey="day"
+                      tick={{ fill: "#8998ae", fontSize: 12 }}
+                      tickFormatter={(value) => formatDate(value, { withYear: false })}
+                      minTickGap={20}
+                    />
                     <YAxis
-                      tick={{ fill: "#8998ae", fontSize: 11 }}
-                      tickFormatter={(value) => `${Math.round(value / 1000)}k`}
+                      tick={{ fill: "#8998ae", fontSize: 12 }}
+                      tickFormatter={formatCompact}
+                      width={52}
                     />
                     <Tooltip
                       contentStyle={{
@@ -217,6 +244,7 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
                         borderRadius: 12,
                         color: "#f0f5ff",
                       }}
+                      labelFormatter={(value) => formatDate(value)}
                       formatter={(value, name) => [
                         formatMoney(value, baseCurrency),
                         name === "balance" ? "Closing balance" :
@@ -256,7 +284,7 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
                 </ResponsiveContainer>
               </div>
               <div className="chart-footer">
-                <span><span className="live-dot" /> Live API forecast</span>
+                <span><span className="live-dot" /> Next {chartData.length} days</span>
                 <span>Currency: {baseCurrency}</span>
               </div>
             </>
@@ -264,7 +292,7 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
             <div className="empty-state">
               {loading
                 ? "Loading forecast…"
-                : `No forecast rows available for ${baseCurrency}. Check the API response.`}
+                : `No forecast available for ${baseCurrency} yet.`}
             </div>
           )}
         </article>
@@ -274,7 +302,7 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
             title="Financial health"
             subtitle="Liquidity status from risk analysis"
           />
-          <div className={`health-summary ${riskStatus === "critical" ? "health-summary-critical" : riskStatus === "unknown" ? "health-summary-unknown" : "health-summary-stable"}`}>
+          <div className={`health-summary health-summary-${RISK_TONE[riskStatus] ? riskStatus : "unknown"}`}>
             <div className="health-icon"><ShieldAlert size={21} /></div>
             <div>
               <span>Current status</span>
@@ -282,11 +310,11 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
             </div>
           </div>
           <div className="health-status">
-            <span className={`status-dot ${riskStatus === "unknown" ? "status-dot-neutral" : riskStatus === "critical" ? "" : "green-bg"}`} />
-            <strong>{riskCount} risk {riskCount === 1 ? "record" : "records"} reported</strong>
+            <span className={`status-dot ${riskStatus === "unknown" ? "status-dot-neutral" : riskStatus === "healthy" ? "green-bg" : riskStatus === "warning" ? "amber-bg" : ""}`} />
+            <strong>{riskCount} forecast {riskCount === 1 ? "day" : "days"} flagged</strong>
           </div>
           <p className="health-description">
-            Review the forecast and risk records for the details behind this status.
+            {HEALTH_COPY[riskStatus] || "Risk status is not available right now."}
           </p>
           <div className="health-row">
             <span>Configured minimum reserve</span>
@@ -303,7 +331,7 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
         <article className="panel">
           <SectionTitle
             title="Upcoming payments"
-            subtitle="Open invoices and obligations from the API"
+            subtitle="Next open invoices and obligations by date"
             action="View invoices"
             onAction={() => setPage("invoices")}
           />
@@ -311,6 +339,10 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
             {upcoming.map((item) => {
               const currency = item.currency || baseCurrency;
               const isReceivable = item.displayType === "Receivable";
+              const isOverdue = getPaymentStatus(item) === "overdue";
+              // Obligations carry a priority instead of a status.
+              const label = isOverdue ? "overdue" : item.priority ? `${item.priority} priority` : "open";
+              const pillClass = isOverdue || item.priority === "critical" ? "status-red" : "status-blue";
 
               return (
                 <div className="payment-row" key={`${item.displayType}-${item.id}`}>
@@ -318,14 +350,14 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
                     {isReceivable ? <ArrowDownRight size={18} /> : <ArrowUpRight size={18} />}
                   </div>
                   <div className="payment-info">
-                    <strong>{item.counterparty || item.client || item.category || "Payment"}</strong>
-                    <span>{item.displayId} · {item.displayDate}</span>
+                    <strong className={item.priority ? "capitalize" : ""}>
+                      {item.counterparty || item.client || item.category || "Payment"}
+                    </strong>
+                    <span>{item.displayId} · {formatDate(item.displayDate)}</span>
                   </div>
                   <div className="payment-amount">
-                    <strong>{formatMoney(item.amount, currency)}</strong>
-                    <span className={`status-pill ${isReceivable ? "status-green" : "status-amber"}`}>
-                      {item.status || item.priority || item.displayType}
-                    </span>
+                    <strong>{isReceivable ? "+" : "−"}{formatMoney(item.amount, currency)}</strong>
+                    <span className={`status-pill ${pillClass}`}>{label}</span>
                   </div>
                 </div>
               );
@@ -341,37 +373,47 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
         <article className="panel">
           <SectionTitle
             title="Risk alerts"
-            subtitle="Risk records reported by your backend"
+            subtitle="Periods where projected cash breaks zero or your reserve"
             action="View risks"
             onAction={() => setPage("risk")}
           />
           <div className="risk-list">
-            {(data.risks?.risks || data.risks?.alerts || []).slice(0, 4).map((risk, index) => {
-              const level = String(risk.severity || risk.level || "medium").toLowerCase();
+            {riskPeriods.slice(0, 4).map((period) => {
+              const isCritical = period.severity === "critical";
 
               return (
-                <div className="risk-row" key={risk.id || `${risk.title}-${index}`}>
-                  <div className={`risk-indicator risk-${level === "critical" ? "high" : level}`}>
+                <div className="risk-row" key={`${period.currency}-${period.start}`}>
+                  <div className={`risk-indicator ${isCritical ? "risk-high" : ""}`}>
                     <ShieldAlert size={17} />
                   </div>
                   <div className="risk-copy">
                     <div>
-                      <strong>{risk.title || risk.message || "Liquidity risk"}</strong>
-                      <span className={`risk-tag tag-${level === "critical" ? "high" : level}`}>
-                        {level}
+                      <strong>{RISK_TITLES[period.severity] || "Liquidity risk"}</strong>
+                      <span className={`risk-tag ${isCritical ? "tag-high" : "tag-medium"}`}>
+                        {period.severity}
                       </span>
                     </div>
-                    <p>{risk.detail || risk.description || risk.message || "Review the forecast for details."}</p>
-                    <small><CalendarClock size={13} /> {risk.date || risk.forecast_date || ""}</small>
+                    <p>
+                      Lowest projected balance {formatMoney(period.lowestBalance, period.currency)}
+                      {period.maxShortfall > 0 && ` · up to ${formatMoney(period.maxShortfall, period.currency)} short of reserve`}
+                    </p>
+                    <small>
+                      <CalendarClock size={13} />
+                      {period.days === 1
+                        ? formatDate(period.start)
+                        : `${formatDate(period.start, { withYear: false })} – ${formatDate(period.end)} · ${period.days} days`}
+                    </small>
                   </div>
                 </div>
               );
             })}
-            {!((data.risks?.risks || data.risks?.alerts || []).length) && (
+            {!riskPeriods.length && (
               <div className="empty-state">
                 {loading
                   ? "Loading risk alerts…"
-                  : `Overall status: ${riskStatus}. ${riskCount} risk records reported.`}
+                  : riskStatus === "healthy"
+                    ? "No risk periods in the next 30 days. Cash stays above your reserve."
+                    : "Risk details are not available right now."}
               </div>
             )}
           </div>

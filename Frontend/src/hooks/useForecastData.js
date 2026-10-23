@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { getForecast } from "../lib/companyApi";
+import { getErrorMessage } from "../lib/errors";
 
 export function useForecastData(initialDays = 30) {
   const [days, setDays] = useState(initialDays);
@@ -15,11 +16,7 @@ export function useForecastData(initialDays = 30) {
       const response = await getForecast(days);
       setForecast(response.data);
     } catch (err) {
-      setError(
-        err.response?.data?.detail ||
-          err.message ||
-          "Could not load the forecast."
-      );
+      setError(getErrorMessage(err, "Could not load the forecast."));
     } finally {
       setLoading(false);
     }

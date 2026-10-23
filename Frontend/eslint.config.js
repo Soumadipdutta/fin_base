@@ -19,4 +19,22 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // The app is written in JavaScript, so lint .js/.jsx as well.
+    files: ['**/*.{js,jsx}'],
+    extends: [
+      js.configs.recommended,
+      reactHooks.configs.flat.recommended,
+      reactRefresh.configs.vite,
+    ],
+    languageOptions: {
+      globals: globals.browser,
+      parserOptions: { ecmaFeatures: { jsx: true } },
+    },
+    rules: {
+      // Every data hook loads on mount with useEffect(() => { refresh() }).
+      // Keep it visible as a warning instead of rewriting the hooks.
+      'react-hooks/set-state-in-effect': 'warn',
+    },
+  },
 ])

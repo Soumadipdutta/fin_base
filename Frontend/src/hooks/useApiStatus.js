@@ -1,5 +1,7 @@
+
 import { useCallback, useEffect, useState } from "react";
 import api from "../lib/api";
+import { COMPANY_ID } from "../lib/config";
 
 export function useApiStatus() {
   const [status, setStatus] = useState("checking");
@@ -7,7 +9,7 @@ export function useApiStatus() {
 
   const checkStatus = useCallback(async () => {
     try {
-      const response = await api.get("/companies/4", {
+      const response = await api.get(`/companies/${COMPANY_ID}`, {
         timeout: 3000,
       });
 

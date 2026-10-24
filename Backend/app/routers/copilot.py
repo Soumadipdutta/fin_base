@@ -26,6 +26,7 @@ from app.services.copilot_memory_service import (
     get_memory_context,
     save_memory,
 )
+from app.services.copilot_api_client import fetch_financial_json
 
 router = APIRouter(tags=["AI Copilot"])
 logger = logging.getLogger(__name__)
@@ -87,11 +88,114 @@ Company-specific long-term memory:
 """.strip()
 
 
-def build_agent(company_id: int, memory_context: str = ""):
+def normalize_forecast_response(data: object) -> dict:
+    """Validate forecast tool output without inventing financial data."""
+    if not isinstance(data, dict):
+        logger.warning("Copilot received malformed forecast data")
+        return {
+            "error": (
+                "The financial service returned an invalid forecast. "
+                "No verified result is available."
+            )
+        }
+
+    if "error" in data:
+        return data
+
+    if not isinstance(data.get("daily_forecast"), list):
+        logger.warning("Copilot received malformed forecast data")
+        return {
+            "error": (
+                "The financial service returned an incomplete forecast. "
+                "No verified result is available."
+            )
+        }
+
+    return {
+        "forecast_start": data.get("forecast_start"),
+        "forecast_end": data.get("forecast_end"),
+        "base_currency": data.get("base_currency"),
+        "daily_forecast": data["daily_forecast"][:90],
+        "assumptions": data.get("assumptions", []),
+    }
+
+
+def build_financial_tools(company_id: int):
     company_url = f"{API_BASE_URL}/companies/{company_id}"
 
+    async def fetch_json(
+        path: str,
+        params: dict | None = None,
+    ) -> dict | list:
+        return await fetch_financial_json(
+            url=f"{company_url}/{path}",
+            params=params,
+        )
 
-    async def fetch_json(path: str, params: dict | None = None):
+    @tool
+    async def get_cashflow_forecast(days: int = 30) -> dict:
+        """Retrieve the company's cash-flow forecast.
+        Use this for future balances, incoming payments, outgoing
+        payments, and reserve shortfalls. Days must be 1 to 90.
+        """
+        if not 1 <= days <= 90:
+            return {"error": "days must be between 1 and 90"}
+
+        data = await fetch_json("forecast", {"days": days})
+        return normalize_forecast_response(data)
+
+    @tool
+    async def get_financial_risks() -> dict:
+        """Retrieve current forecast-based financial risk alerts."""
+        return await fetch_json("risks")
+
+    @tool
+    async def run_cashflow_simulation(
+        days: int = 30,
+        simulations: int = 100,
+        max_delay_days: int = 7,
+    ) -> dict:
+        """Run a Monte Carlo cash-flow simulation for delayed receivables."""
+        if not 1 <= days <= 90:
+            return {"error": "days must be between 1 and 90"}
+
+        if not 1 <= simulations <= 1000:
+            return {"error": "simulations must be between 1 and 1000"}
+
+        if not 0 <= max_delay_days <= 90:
+            return {"error": "max_delay_days must be between 0 and 90"}
+
+        return await fetch_json(
+            "simulation",
+            {
+                "days": days,
+                "simulations": simulations,
+                "max_delay_days": max_delay_days,
+                "seed": 42,
+            },
+        )
+
+    return [
+        get_cashflow_forecast,
+        get_financial_risks,
+        run_cashflow_simulation,
+    ]
+
+
+def build_agent(company_id: int, memory_context: str = ""):
+    tools = build_financial_tools(company_id)
+
+    return create_react_agent(
+        model=get_chat_model().bind_tools(tools),
+        tools=tools,
+        prompt=build_copilot_prompt(memory_context),
+    )
+
+
+
+    async def fetch_json(path: str, params: dict | None = None) -> dict | list:
+        return await fetch_financial_json(url=f"{company_url}/{path}", params=params)
+        company_url = f"{API_BASE_URL}/companies/{company_id}"
         try:
             async with httpx.AsyncClient(timeout=45.0) as client:
                 response = await client.get(
@@ -140,6 +244,7 @@ def build_agent(company_id: int, memory_context: str = ""):
             }
 
 
+
     @tool
     async def get_cashflow_forecast(days: int = 30) -> dict:
         """Retrieve the company's cash-flow forecast.
@@ -150,6 +255,30 @@ def build_agent(company_id: int, memory_context: str = ""):
             return {"error": "days must be between 1 and 90"}
 
         data = await fetch_json("forecast", {"days": days})
+        return normalize_forecast_response(data)
+
+
+        if not isinstance(data, dict):
+            logger.warning("Copilot received malformed forecast data")
+            return {
+                "error": (
+                    "The financial service returned an invalid forecast. "
+                    "No verified result is available."
+                )
+            }
+
+            if "error" in data:
+                return data
+
+            if not isinstance(data.get("daily_forecast"), list):
+                logger.warning("Copilot received malformed forecast data")
+                return {
+                    "error": (
+                        "The financial service returned an incomplete forecast. "
+                        "No verified result is available."
+                    )
+                }
+
         return {
             "forecast_start": data.get("forecast_start"),
             "forecast_end": data.get("forecast_end"),

@@ -1,0 +1,6 @@
+
+offline-package/
+
+__pycache__/
+
+*.py[cod]

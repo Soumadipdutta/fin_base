@@ -7,6 +7,7 @@ from app.models.conversation import CopilotConversation, CopilotMessage
 from app.models.memory import CopilotMemory
 from app.models.saved_scenario import SavedScenario
 from app.models.optimization_run import OptimizationRun
+from app.models.financial_alert import FinancialAlert
 
 __all__ = [
     "Account",
@@ -17,4 +18,5 @@ __all__ = [
     "CopilotMessage",
     "CopilotMemory",
     "SavedScenario",
+    "FinancialAlert",
 ]

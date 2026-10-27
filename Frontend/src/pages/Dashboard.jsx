@@ -1,6 +1,10 @@
+import { useState } from "react";
 import {
   ArrowDownRight,
   ArrowUpRight,
+  Check,
+  CheckCheck,
+  RefreshCw,
   Wallet,
   ShieldAlert,
   CalendarClock,
@@ -19,12 +23,60 @@ import PageHeader from "../components/PageHeader";
 import MetricCard from "../components/MetricCard";
 import SectionTitle from "../components/SectionTitle";
 import { formatMoney, getArray, getInvoiceLabel, getInvoiceDate } from "../lib/financeFormatters";
+import {
+  generateFinancialAlerts,
+  updateFinancialAlertStatus,
+} from "../lib/companyApi";
 
 function Dashboard({ setPage, data, loading, error, onRefresh }) {
   const accounts = getArray(data.accounts);
   const invoices = getArray(data.invoices);
   const obligations = getArray(data.obligations);
   const dailyForecast = data.forecast?.daily_forecast || [];
+
+  const [alertBusy, setAlertBusy] = useState(false);
+const [alertError, setAlertError] = useState("");
+const [alertNotice, setAlertNotice] = useState("");
+
+const alerts = Array.isArray(data.alerts) ? data.alerts : [];
+
+async function handleGenerateAlerts() {
+  setAlertBusy(true);
+  setAlertError("");
+  setAlertNotice("");
+
+  try {
+    await generateFinancialAlerts(30);
+    await onRefresh();
+    setAlertNotice("Financial alerts refreshed.");
+  } catch (err) {
+    setAlertError(
+      err.response?.data?.detail || "Could not generate financial alerts."
+    );
+  } finally {
+    setAlertBusy(false);
+  }
+}
+
+async function handleAlertStatus(alertId, status) {
+  setAlertBusy(true);
+  setAlertError("");
+  setAlertNotice("");
+
+  try {
+    await updateFinancialAlertStatus(alertId, status);
+    await onRefresh();
+    setAlertNotice(
+      status === "resolved" ? "Alert resolved." : "Alert acknowledged."
+    );
+  } catch (err) {
+    setAlertError(
+      err.response?.data?.detail || "Could not update alert status."
+    );
+  } finally {
+    setAlertBusy(false);
+  }
+}
 
   // Never add balances from different currencies together.
   const balancesByCurrency = accounts.reduce((result, account) => {
@@ -377,6 +429,119 @@ function Dashboard({ setPage, data, loading, error, onRefresh }) {
           </div>
         </article>
       </section>
+      
+<section className="content-grid financial-alerts-grid">
+  <article className="panel financial-alerts-panel">
+    <div className="financial-alerts-header">
+      <div>
+        <h2>Financial alerts</h2>
+        <p className="financial-alerts-subtitle">
+          Persistent warnings about cash deficits and reserve breaches.
+        </p>
+      </div>
+
+      <button
+        className="button button-secondary"
+        onClick={handleGenerateAlerts}
+        disabled={alertBusy}
+      >
+        <RefreshCw size={15} />
+        {alertBusy ? "Refreshing..." : "Generate alerts"}
+      </button>
+    </div>
+
+    {alertError && (
+      <p className="financial-alert-message error" role="alert">
+        {alertError}
+      </p>
+    )}
+
+    {alertNotice && (
+      <p className="financial-alert-message success" role="status">
+        {alertNotice}
+      </p>
+    )}
+
+    {alerts.length === 0 ? (
+      <div className="empty-state">
+        No financial alerts yet. Select “Generate alerts” to check your forecast.
+      </div>
+    ) : (
+      <div className="financial-alert-list">
+        {alerts.map((alert) => (
+          <div className="financial-alert-row" key={alert.id}>
+            <div className="financial-alert-main">
+              <div className="financial-alert-title-row">
+                <h3>{alert.title}</h3>
+                <span
+                  className={`financial-alert-severity severity-${String(
+                    alert.severity || "low"
+                  ).toLowerCase()}`}
+                >
+                  {alert.severity || "low"}
+                </span>
+                <span className={`financial-alert-status status-${alert.status}`}>
+                  {alert.status}
+                </span>
+              </div>
+
+              <p>{alert.message}</p>
+
+              {alert.affected_date && (
+                <small>
+                  Affected date: {alert.affected_date}
+                </small>
+              )}
+
+              {alert.estimated_impact != null && (
+                <p className="financial-alert-impact">
+                  Estimated impact: {alert.currency || "USD"}{" "}
+                  {Number(alert.estimated_impact).toLocaleString("en-IN", {
+                    maximumFractionDigits: 2,
+                  })}
+                </p>
+              )}
+
+              {alert.recommended_action && (
+                <p className="financial-alert-action">
+                  <strong>Recommended action:</strong>{" "}
+                  {alert.recommended_action}
+                </p>
+              )}
+            </div>
+
+            <div className="financial-alert-actions">
+              {alert.status === "new" && (
+                <button
+                  className="button button-secondary"
+                  onClick={() =>
+                    handleAlertStatus(alert.id, "acknowledged")
+                  }
+                  disabled={alertBusy}
+                >
+                  <Check size={14} />
+                  Acknowledge
+                </button>
+              )}
+
+              {alert.status !== "resolved" && (
+                <button
+                  className="button button-primary"
+                  onClick={() => handleAlertStatus(alert.id, "resolved")}
+                  disabled={alertBusy}
+                >
+                  <CheckCheck size={14} />
+                  Resolve
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    )}
+  </article>
+</section>
+
     </>
   );
 }

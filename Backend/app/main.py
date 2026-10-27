@@ -20,6 +20,7 @@ from app.routers import copilot_conversations
 from app.core.company_access import require_allowed_company
 from app.api.routes import scenarios
 from app.api.routes.optimization_routes import (router as optimization_history_router)
+from app.api.routes import financial_alerts
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -95,11 +96,17 @@ app.include_router(
     tags=["Optimization History"],
     dependencies=[Depends(require_allowed_company)],
 )
+app.include_router(
+    financial_alerts.router,
+    prefix="/api/v1",
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
     ],
     allow_credentials=True,
     allow_methods=["*"],

@@ -1,3 +1,4 @@
+﻿
 services:
   db:
     image: postgres:16
@@ -15,7 +16,33 @@ services:
       test: ["CMD-SHELL", "pg_isready -U flowpilot -d flowpilot"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+
+  backend:
+    image: flowpilot-backend:offline
+    container_name: flowpilot-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://flowpilot:flowpilot_dev@db:5432/flowpilot
+      FLOWPILOT_ALLOWED_COMPANY_ID: "4"
+      OLLAMA_MODEL: ministral-3:8b
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    ports:
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    image: flowpilot-frontend:offline
+    container_name: flowpilot-frontend
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
 
 volumes:
   flowpilot_pgdata:

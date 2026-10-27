@@ -22,6 +22,19 @@ export const getForecast = (days = 30) =>
 export const getRisks = () =>
   api.get(`${companyPath}/risks`);
 
+export const getFinancialAlerts = (status) =>
+  api.get(`${companyPath}/alerts`, {
+    params: status ? { status } : {},
+  });
+
+export const generateFinancialAlerts = (days = 30) =>
+  api.post(`${companyPath}/alerts/generate`, null, {
+    params: { days },
+  });
+
+export const updateFinancialAlertStatus = (alertId, status) =>
+  api.patch(`${companyPath}/alerts/${alertId}`, { status });
+
 export const getSimulation = (params = {}) =>
   api.get(`${companyPath}/simulation`, {
     params,

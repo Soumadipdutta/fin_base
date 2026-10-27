@@ -6,6 +6,7 @@ import {
   getObligations,
   getForecast,
   getRisks,
+  getFinancialAlerts,
 } from "../lib/companyApi";
 
 export function useDashboardData() {
@@ -16,6 +17,7 @@ export function useDashboardData() {
     obligations: [],
     forecast: null,
     risks: null,
+    alerts: [],
   });
 
   const [loading, setLoading] = useState(true);
@@ -32,6 +34,7 @@ export function useDashboardData() {
       getObligations(),
       getForecast(30),
       getRisks(),
+      getFinancialAlerts(),
     ]);
 
     const names = [
@@ -41,6 +44,7 @@ export function useDashboardData() {
       "obligations",
       "forecast",
       "risks",
+      "alerts",
     ];
 
     const nextData = {};
@@ -50,8 +54,10 @@ export function useDashboardData() {
       const name = names[index];
 
       if (result.status === "fulfilled") {
-        nextData[name] = result.value.data;
-      } else {
+nextData[name] =
+  name === "alerts"
+    ? result.value.data.alerts || []
+    : result.value.data;      } else {
         nextData[name] = data[name];
         failures.push(name);
         console.error(`Failed to load ${name}:`, result.reason);

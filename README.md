@@ -332,49 +332,353 @@ The example illustrates the response structure; actual dates, assumptions, and f
 
 ## 🐳 Docker & Kubernetes
 
-FlowPilot can be containerized and deployed locally using Docker and Kubernetes.
+This section provides a repeatable **local Minikube deployment** for reviewers who want to run FlowPilot in Kubernetes. It builds the images from this repository and keeps the database inside the cluster, so it does not depend on the developer's laptop-specific Docker containers or tunnel URL.
 
-```mermaid
-flowchart TB
-    DEV["Developer"]
-    IMG["Docker Images"]
-    K8S["Minikube Kubernetes Cluster"]
-    FE["Frontend Deployment"]
-    BE["Backend Deployment"]
-    DB[("PostgreSQL")]
+> **Requirements:** Docker Desktop running with Linux containers, Minikube, kubectl, and enough memory for PostgreSQL plus the API. The Financial Copilot also needs a reachable Ollama server and a downloaded model; the core dashboard, forecast, and risk endpoints can be checked separately if Ollama is unavailable. These commands target PowerShell on Windows; run equivalent commands in your shell if needed.
 
-    DEV --> IMG
-    IMG --> K8S
-    K8S --> FE
-    K8S --> BE
-    FE --> BE
-    BE --> DB
+### Option A — Run with Docker Compose
 
-    classDef infra fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
-    classDef data fill:#fef3c7,stroke:#d97706,color:#78350f
+The repository's root `docker-compose.yml` currently references the prebuilt images `flowpilot-backend:offline` and `flowpilot-frontend:offline`. Use this option only if those images are already available locally:
 
-    class DEV,IMG,K8S,FE,BE infra
-    class DB data
+```powershell
+docker image inspect flowpilot-backend:offline
+docker image inspect flowpilot-frontend:offline
+docker compose up -d
+docker compose ps
 ```
 
-Useful commands for inspecting a Kubernetes deployment:
+Open the frontend at [http://localhost:3001](http://localhost:3001), the API health check at [http://localhost:8001/health](http://localhost:8001/health), and API docs at [http://localhost:8001/docs](http://localhost:8001/docs).
 
-```bash
+To stop the containers without deleting the database volume:
+
+```powershell
+docker compose down
+```
+
+Do **not** add `-v` unless you intentionally want to delete the database volume and its data.
+
+### Option B — Build and run on Minikube
+
+#### 1. Start the cluster and build the application images
+
+Run these commands from the repository root:
+
+```powershell
+minikube start --driver=docker
+kubectl cluster-info
+minikube image build -t flowpilot-backend:review ./Backend
+minikube image build -t flowpilot-frontend:review --build-arg VITE_API_BASE_URL=/api/v1 --build-arg VITE_COMPANY_ID=4 ./Frontend
+```
+
+The frontend image must use a same-origin API base of `/api/v1`; the Nginx configuration below forwards those requests to the in-cluster backend service. This avoids hardcoding `localhost` or a temporary public tunnel into the browser bundle.
+
+#### 2. Create the namespace and database credentials
+
+```powershell
+kubectl create namespace flowpilot
+kubectl create secret generic flowpilot-db -n flowpilot --from-literal=POSTGRES_USER=flowpilot --from-literal=POSTGRES_PASSWORD=flowpilot_dev --from-literal=POSTGRES_DB=flowpilot
+```
+
+These are **demo credentials only**. For any shared or production environment, replace them with strong credentials and use a managed secret mechanism.
+
+#### 3. Create the PostgreSQL workload
+
+Save the following as `postgres.yaml` in your working directory:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: flowpilot-postgres-data
+  namespace: flowpilot
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flowpilot-postgres
+  namespace: flowpilot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flowpilot-postgres
+  template:
+    metadata:
+      labels:
+        app: flowpilot-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: flowpilot-db
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: flowpilot-db
+                  key: POSTGRES_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: flowpilot-db
+                  key: POSTGRES_DB
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: flowpilot-postgres-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: flowpilot
+spec:
+  selector:
+    app: flowpilot-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+```
+
+Apply it:
+
+```powershell
+kubectl apply -f .\postgres.yaml
+kubectl rollout status deployment/flowpilot-postgres -n flowpilot --timeout=180s
+```
+
+#### 4. Deploy the backend API
+
+Create a Secret containing the database URL. It uses the PostgreSQL service name, not `localhost`:
+
+```powershell
+kubectl create secret generic flowpilot-backend-config -n flowpilot --from-literal=DATABASE_URL='postgresql+psycopg://flowpilot:flowpilot_dev@postgres:5432/flowpilot' --from-literal=FLOWPILOT_ALLOWED_COMPANY_ID=4
+```
+
+Create `backend.yaml`:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flowpilot-backend
+  namespace: flowpilot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flowpilot-backend
+  template:
+    metadata:
+      labels:
+        app: flowpilot-backend
+    spec:
+      containers:
+        - name: backend
+          image: flowpilot-backend:review
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - secretRef:
+                name: flowpilot-backend-config
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: flowpilot
+spec:
+  selector:
+    app: flowpilot-backend
+  ports:
+    - port: 8000
+      targetPort: 8000
+```
+
+Apply and inspect:
+
+```powershell
+kubectl apply -f .\backend.yaml
+kubectl rollout status deployment/flowpilot-backend -n flowpilot --timeout=180s
+kubectl logs deployment/flowpilot-backend -n flowpilot --tail=100
+```
+
+The backend image's entrypoint runs the application's configured startup process. If the database starts empty and the dashboard has no company data, check the repository's migrations and seed-data workflow before evaluating endpoints; do not assume an empty database contains demo records.
+
+#### 5. Configure Nginx and deploy the frontend
+
+Create `frontend-nginx.yaml`:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flowpilot-nginx
+  namespace: flowpilot
+data:
+  default.conf: |
+    server {
+      listen 80;
+      server_name localhost;
+      root /usr/share/nginx/html;
+      index index.html;
+
+      location /api/v1/ {
+        proxy_pass http://backend:8000/api/v1/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+      }
+
+      location /health {
+        proxy_pass http://backend:8000/health;
+      }
+
+      location / {
+        try_files $uri $uri/ /index.html;
+      }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flowpilot-frontend
+  namespace: flowpilot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flowpilot-frontend
+  template:
+    metadata:
+      labels:
+        app: flowpilot-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: flowpilot-frontend:review
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: flowpilot-nginx
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: flowpilot
+spec:
+  selector:
+    app: flowpilot-frontend
+  ports:
+    - port: 80
+      targetPort: 80
+```
+
+Apply and wait for both workloads:
+
+```powershell
+kubectl apply -f .\frontend-nginx.yaml
+kubectl rollout status deployment/flowpilot-frontend -n flowpilot --timeout=180s
+kubectl get pods,services -n flowpilot
+```
+
+#### 6. Open FlowPilot and verify the API
+
+Keep these commands running in **separate terminals**:
+
+Terminal 1 — frontend:
+
+```powershell
+kubectl port-forward service/frontend 13001:80 -n flowpilot
+```
+
+Terminal 2 — backend API docs:
+
+```powershell
+kubectl port-forward service/backend 18000:8000 -n flowpilot
+```
+
+Open:
+
+- Dashboard: [http://localhost:13001](http://localhost:13001)
+- API documentation: [http://localhost:18000/docs](http://localhost:18000/docs)
+- API health: [http://localhost:18000/health](http://localhost:18000/health)
+
+Verify the frontend proxy from PowerShell:
+
+```powershell
+Invoke-WebRequest "http://localhost:13001/health"
+Invoke-WebRequest "http://localhost:13001/api/v1/companies?company_id=4"
+Invoke-WebRequest "http://localhost:13001/api/v1/companies/4/forecast?days=30"
+Invoke-WebRequest "http://localhost:13001/api/v1/companies/4/risks"
+```
+
+A successful HTTP response confirms that the request reached the API. If forecast/risk routes return an error, inspect backend logs; if direct API requests work but frontend-proxy requests fail, inspect Nginx logs:
+
+```powershell
+kubectl logs deployment/flowpilot-backend -n flowpilot --tail=100
+kubectl logs deployment/flowpilot-frontend -n flowpilot --tail=100
+```
+
+#### 7. Kubernetes troubleshooting and cleanup
+
+```powershell
 kubectl get nodes
-kubectl get deployments -n flowpilot
-kubectl get pods -n flowpilot
-kubectl get services -n flowpilot
-```
-
-View backend logs:
-
-```bash
+kubectl get deployments,pods,services -n flowpilot
+kubectl describe pods -n flowpilot
 kubectl logs deployment/flowpilot-backend -n flowpilot
 ```
 
-For a local demonstration, the frontend and backend can be exposed using Kubernetes port-forwarding, depending on your service configuration.
+To stop only the port-forward sessions, press `Ctrl+C` in their terminals. To remove this demo namespace and its Kubernetes resources after reviewing, run:
 
-**Security note:** Keep secrets out of Git, restrict access to financial data, and do not expose a development database or an unauthenticated API publicly.
+```powershell
+kubectl delete namespace flowpilot
+```
+
+**Warning:** Deleting the namespace removes the demo PVC and its associated cluster resources. Do this only if you no longer need the data. Do not run `minikube delete`, `docker system prune`, or volume-deletion commands as routine cleanup.
+
+**Security and demo notes:**
+- This is a local reviewer setup, not a production deployment. Do not expose the API or demo database directly to the public internet.
+- The default demo database credentials are not suitable for production.
+- The Copilot requires a reachable Ollama service and a compatible model; GPU memory may be insufficient on some machines. Forecasting and risk endpoints can be verified independently.
+- Demo records must be seeded according to the repository's data setup. Do not enter real customer financial data.
+- Port-forwarding is local to the machine running Minikube; it is not a permanent public URL.
 
 ## 📈 Development Roadmap
 
